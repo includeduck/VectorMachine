@@ -232,3 +232,39 @@ Testing: pytest
 - Cylindrical & spherical coordinates
 - Copy as LaTeX
 - Interactive tutorial
+
+# Structure
+
+CurlCalculator/
+│
+├── main.py
+├── requirements.txt
+├── README.md
+│
+├── ui/
+│   ├── main_window.py
+│   ├── toolbar.py
+│   ├── settings_dialog.py
+│   └── widgets.py
+│
+├── engine/
+│   ├── parser.py
+│   ├── calculus.py
+│   ├── simplifier.py
+│   └── validator.py
+│
+├── visualization/
+│   ├── plot2d.py
+│   └── plot3d.py
+│
+├── resources/
+│   ├── icons/
+│   └── themes/
+│
+├── examples/
+│   ├── example1.json
+│   └── example2.json
+│
+└── tests/
+    ├── test_parser.py
+    └── test_calculus.py
