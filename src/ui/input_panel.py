@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
                                QLabel, QLineEdit, QGroupBox, QFormLayout)
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QTimer
 from src.core.computation import parse_expression
 
 class InputPanel(QWidget):
@@ -9,9 +9,14 @@ class InputPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.validation_timer = QTimer(self)
+        self.validation_timer.setSingleShot(True)
+        self.validation_timer.setInterval(400) # 400ms debounce
+        self.validation_timer.timeout.connect(self.do_validate_inputs)
+        
         self.setup_ui()
         self.connect_signals()
-        self.validate_inputs()
+        self.do_validate_inputs()
         
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -63,6 +68,9 @@ class InputPanel(QWidget):
         self.r_input.textChanged.connect(self.validate_inputs)
         
     def validate_inputs(self):
+        self.validation_timer.start()
+        
+    def do_validate_inputs(self):
         p_text = self.p_input.text()
         q_text = self.q_input.text()
         r_text = self.r_input.text()
@@ -108,7 +116,7 @@ class InputPanel(QWidget):
         self.p_input.setText(p_text)
         self.q_input.setText(q_text)
         self.r_input.setText(r_text)
-        self.validate_inputs()
+        self.do_validate_inputs()
         
     def is_valid(self):
         p_expr, q_expr, r_expr = self.get_expressions()
