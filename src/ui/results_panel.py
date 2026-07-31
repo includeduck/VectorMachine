@@ -1,3 +1,5 @@
+from html import escape
+
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QTextEdit
 from PySide6.QtGui import QFont
 
@@ -25,34 +27,48 @@ class ResultsPanel(QWidget):
         layout.addWidget(self.group_box)
         
     def display_divergence(self, steps):
-        html = f"""
+        self.results_text.setHtml(self._divergence_html(steps))
+
+    def display_curl(self, steps):
+        self.results_text.setHtml(self._curl_html(steps))
+
+    def display_results(self, div_steps=None, curl_steps=None):
+        parts = []
+        if div_steps:
+            parts.append(self._divergence_html(div_steps))
+        if curl_steps:
+            parts.append(self._curl_html(curl_steps))
+        self.results_text.setHtml("".join(parts) if parts else "")
+
+    def _divergence_html(self, steps):
+        values = {key: escape(str(value)) for key, value in steps.items()}
+        return f"""
         <h3>Divergence: div(F) = &nabla; &middot; F</h3>
-        <p><b>Formula:</b> {steps['formula']}</p>
+        <p><b>Formula:</b> {values['formula']}</p>
         <p><b>Partial Derivatives:</b><br/>
-           &part;P/&part;x = {steps['dP_dx']}<br/>
-           &part;Q/&part;y = {steps['dQ_dy']}<br/>
-           &part;R/&part;z = {steps['dR_dz']}
+           &part;P/&part;x = {values['dP_dx']}<br/>
+           &part;Q/&part;y = {values['dQ_dy']}<br/>
+           &part;R/&part;z = {values['dR_dz']}
         </p>
-        <p><b>Unsimplified:</b> {steps['unsimplified']}</p>
-        <p><b>Final Simplified:</b> <span style="color:blue;">{steps['final']}</span></p>
+        <p><b>Unsimplified:</b> {values['unsimplified']}</p>
+        <p><b>Final Simplified:</b> <span style="color:blue;">{values['final']}</span></p>
         <hr>
         """
-        self.results_text.setHtml(html)
-        
-    def display_curl(self, steps):
-        html = f"""
+
+    def _curl_html(self, steps):
+        values = {key: escape(str(value)) for key, value in steps.items()}
+        return f"""
         <h3>Curl: curl(F) = &nabla; &times; F</h3>
         <p><b>Determinant components:</b><br/>
-           i: (&part;R/&part;y - &part;Q/&part;z) = {steps['dR_dy']} - ({steps['dQ_dz']}) = {steps['i_comp_unsimplified']}<br/>
-           j: (&part;P/&part;z - &part;R/&part;x) = {steps['dP_dz']} - ({steps['dR_dx']}) = {steps['j_comp_unsimplified']}<br/>
-           k: (&part;Q/&part;x - &part;P/&part;y) = {steps['dQ_dx']} - ({steps['dP_dy']}) = {steps['k_comp_unsimplified']}
+           i: (&part;R/&part;y - &part;Q/&part;z) = {values['dR_dy']} - ({values['dQ_dz']}) = {values['i_comp_unsimplified']}<br/>
+           j: (&part;P/&part;z - &part;R/&part;x) = {values['dP_dz']} - ({values['dR_dx']}) = {values['j_comp_unsimplified']}<br/>
+           k: (&part;Q/&part;x - &part;P/&part;y) = {values['dQ_dx']} - ({values['dP_dy']}) = {values['k_comp_unsimplified']}
         </p>
         <p><b>Final Vector:</b> <br/>
-           <span style="color:blue;">&lt; {steps['final_i']}, {steps['final_j']}, {steps['final_k']} &gt;</span>
+           <span style="color:blue;">&lt; {values['final_i']}, {values['final_j']}, {values['final_k']} &gt;</span>
         </p>
         <hr>
         """
-        self.results_text.setHtml(html)
         
     def clear_results(self):
         self.results_text.clear()

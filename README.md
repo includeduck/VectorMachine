@@ -50,6 +50,9 @@ python src/main.py
 
 ---
 
+### Theme
+- **View → Theme**: Switch between Light, Dark, and System themes (persisted across launches).
+
 ## ⌨️ Shortcuts & Controls
 
 - `Ctrl + Return`: Compute Divergence

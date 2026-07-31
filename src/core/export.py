@@ -49,6 +49,6 @@ def export_pdf(filepath, html_content):
     
     printer = QPrinter(QPrinter.HighResolution)
     printer.setOutputFormat(QPrinter.PdfFormat)
-    printer.setOutputFileName(filepath)
+    printer.setOutputFileName(str(filepath))
     
     doc.print_(printer)

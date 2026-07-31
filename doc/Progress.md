@@ -29,3 +29,13 @@
 
 ## Next Steps
 With Milestones 1, 2, and 3 completed, the application now supports input, calculation, persistence, visualization, and exporting. The final phase (Milestone 4) focuses on cross-platform QA, accessibility, and polishing the final user interface.
+
+## Maintenance Pass: Reliability and Performance
+
+- Secured expression parsing by limiting input to supported mathematical syntax, functions, and variables (`x`, `y`, and `z`), preventing arbitrary Python evaluation.
+- Fixed the validation/compute race: edits invalidate cached expressions immediately, and results from computations started before an edit are discarded.
+- Improved visualization responsiveness by keeping VTK/PyVista initialization lazy, debouncing redraws, capping 3D density, and ignoring non-finite or complex field samples safely.
+- Reduced repeated field-evaluation overhead with a bounded LRU cache that compiles all three vector components together.
+- Made diagnostic disk logging opt-in via `VECTORMACHINE_DEBUG_LOG`, avoiding routine I/O during normal use.
+- Hardened session persistence with UTF-8, atomic writes, schema validation, and user-facing save failure handling.
+- Added headless regression checks for secure parsing, cache-backed evaluation, session validation, all export formats, immediate input invalidation, and stale-computation suppression.

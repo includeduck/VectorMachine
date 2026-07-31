@@ -1,82 +1,52 @@
 import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QFileDialog, QMessageBox, QMenuBar, QMenu, QTabWidget)
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QActionGroup
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
 from src.ui.visualization_panel import VisualizationPanel
-from src.core.computation import compute_divergence, compute_curl
+from src.ui.compute_worker import ComputeWorker
+from src.ui.themes import stylesheet_for
 from src.core.session import save_session, load_session
 from src.core.export import export_text, export_markdown, export_pdf
+from src.core.settings import get_theme, set_theme
+from src.core.debug_log import debug_log
 
 class VectorMachineWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VectorMachine")
         self.resize(1000, 700)
-        self.apply_theme()
         
         self.last_div_steps = None
         self.last_curl_steps = None
+        self._compute_worker = None
+        self._compute_in_progress = False
+        self._input_revision = 0
+        self._active_compute_revision = None
+        self._current_theme = get_theme()
+        self._theme_actions = {}
         
         self.setup_ui()
         self.create_menus()
+        self.apply_theme(self._current_theme)
         
-    def apply_theme(self):
-        dark_qss = """
-        QMainWindow, QWidget {
-            background-color: #1e1e1e;
-            color: #d4d4d4;
-        }
-        QPushButton {
-            background-color: #0e639c;
-            color: #ffffff;
-            border: none;
-            padding: 8px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
-        QPushButton:hover {
-            background-color: #1177bb;
-        }
-        QPushButton:disabled {
-            background-color: #333333;
-            color: #777777;
-        }
-        QLineEdit, QTextEdit, QSpinBox {
-            background-color: #252526;
-            color: #d4d4d4;
-            border: 1px solid #3c3c3c;
-            padding: 4px;
-            border-radius: 2px;
-        }
-        QGroupBox {
-            border: 1px solid #3c3c3c;
-            border-radius: 4px;
-            margin-top: 1ex;
-            font-weight: bold;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top center;
-            padding: 0 3px;
-        }
-        QTabWidget::pane {
-            border: 1px solid #3c3c3c;
-        }
-        QTabBar::tab {
-            background: #2d2d2d;
-            border: 1px solid #3c3c3c;
-            padding: 6px 12px;
-            color: #888888;
-        }
-        QTabBar::tab:selected {
-            background: #1e1e1e;
-            border-bottom-color: #1e1e1e;
-            color: #ffffff;
-        }
-        """
-        self.setStyleSheet(dark_qss)
+    def apply_theme(self, theme_name):
+        self._current_theme = theme_name
+        self.setStyleSheet(stylesheet_for(theme_name))
+        for name, action in self._theme_actions.items():
+            action.setChecked(name == theme_name)
+
+        debug_log(
+            "app_window.py:apply_theme",
+            "theme applied",
+            {"theme": theme_name},
+            "G",
+        )
+
+    def _on_theme_selected(self, theme_name):
+        set_theme(theme_name)
+        self.apply_theme(theme_name)
         
     def setup_ui(self):
         main_widget = QWidget()
@@ -84,12 +54,10 @@ class VectorMachineWindow(QMainWindow):
         
         main_layout = QHBoxLayout(main_widget)
         
-        # Left Panel (Input and Controls)
         left_layout = QVBoxLayout()
         self.input_panel = InputPanel()
         left_layout.addWidget(self.input_panel)
         
-        # Buttons
         self.btn_divergence = QPushButton("Compute Divergence")
         self.btn_divergence.setShortcut("Ctrl+Return")
         self.btn_divergence.setToolTip("Compute the divergence of the field (Ctrl+Return)")
@@ -107,7 +75,6 @@ class VectorMachineWindow(QMainWindow):
         left_layout.addWidget(self.btn_clear)
         left_layout.addStretch()
         
-        # Right Panel (Tabs for Results and Visualization)
         self.tab_widget = QTabWidget()
         self.results_panel = ResultsPanel()
         self.visualization_panel = VisualizationPanel()
@@ -118,18 +85,24 @@ class VectorMachineWindow(QMainWindow):
         main_layout.addLayout(left_layout, 1)
         main_layout.addWidget(self.tab_widget, 2)
         
-        # Connect signals
         self.btn_divergence.clicked.connect(self.on_compute_divergence)
         self.btn_curl.clicked.connect(self.on_compute_curl)
         self.btn_clear.clicked.connect(self.on_clear)
         self.input_panel.inputChanged.connect(self.update_state)
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
         
         self.update_state()
         
+    def _on_tab_changed(self, index):
+        if self.tab_widget.widget(index) is self.visualization_panel:
+            self.visualization_panel.ensure_vtk_initialized()
+            if self.input_panel.is_valid():
+                P, Q, R = self.input_panel.get_expressions()
+                self.visualization_panel.set_expressions(P, Q, R, source="tab_changed")
+
     def create_menus(self):
         menu_bar = self.menuBar()
         
-        # File Menu
         file_menu = menu_bar.addMenu("File")
         
         save_action = QAction("Save Session", self)
@@ -142,7 +115,6 @@ class VectorMachineWindow(QMainWindow):
         open_action.triggered.connect(self.on_open_session)
         file_menu.addAction(open_action)
         
-        # Export Menu
         export_menu = file_menu.addMenu("Export As...")
         
         export_md = QAction("Markdown (.md)", self)
@@ -161,7 +133,23 @@ class VectorMachineWindow(QMainWindow):
         export_png.triggered.connect(lambda: self.on_export("png"))
         export_menu.addAction(export_png)
         
-        # Examples Menu
+        view_menu = menu_bar.addMenu("View")
+
+        theme_menu = view_menu.addMenu("Theme")
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        for theme_name, label in (
+            ("light", "Light"),
+            ("dark", "Dark"),
+            ("system", "System"),
+        ):
+            action = QAction(label, self, checkable=True)
+            action.setChecked(theme_name == self._current_theme)
+            action.triggered.connect(lambda checked, t=theme_name: self._on_theme_selected(t))
+            theme_group.addAction(action)
+            theme_menu.addAction(action)
+            self._theme_actions[theme_name] = action
+
         examples_menu = menu_bar.addMenu("Examples")
         
         ex1_action = QAction("Example 1: <x, y, z>", self)
@@ -176,44 +164,88 @@ class VectorMachineWindow(QMainWindow):
         ex3_action.triggered.connect(lambda: self.load_example("exp(x*y)", "ln(z)", "x*z"))
         examples_menu.addAction(ex3_action)
         
+    def _set_compute_enabled(self, enabled):
+        allowed = enabled and self.input_panel.is_valid() and not self._compute_in_progress
+        self.btn_divergence.setEnabled(allowed)
+        self.btn_curl.setEnabled(allowed)
+
     def update_state(self):
+        self._input_revision += 1
         is_valid = self.input_panel.is_valid()
-        self.btn_divergence.setEnabled(is_valid)
-        self.btn_curl.setEnabled(is_valid)
+        self._set_compute_enabled(is_valid)
         
+        had_results = self.last_div_steps is not None or self.last_curl_steps is not None
         P, Q, R = self.input_panel.get_expressions()
         if P is not None:
-            self.visualization_panel.set_expressions(P, Q, R)
+            debug_log(
+                "app_window.py:update_state",
+                "scheduling viz update from input change",
+                {"hadResults": had_results, "valid": True},
+                "B",
+            )
+            self.visualization_panel.set_expressions(P, Q, R, source="update_state")
         else:
             self.visualization_panel.clear_plot()
             
-        # Reset computation steps when inputs change
         self.last_div_steps = None
         self.last_curl_steps = None
-        
-    def on_compute_divergence(self):
+
+        if had_results:
+            self.results_panel.clear_results()
+            debug_log(
+                "app_window.py:update_state",
+                "cleared stale results on input change",
+                {"hadResults": had_results},
+                "A",
+            )
+
+    def _start_compute(self, compute_type):
         P, Q, R = self.input_panel.get_expressions()
         if P is None:
             return
-            
-        try:
-            self.last_div_steps = compute_divergence(P, Q, R)
-            self.results_panel.display_divergence(self.last_div_steps)
-            self.tab_widget.setCurrentWidget(self.results_panel)
-        except Exception as e:
-            QMessageBox.critical(self, "Computation Error", str(e))
+
+        if self._compute_in_progress:
+            return
+
+        self._compute_in_progress = True
+        self._active_compute_revision = self._input_revision
+        self._compute_worker = ComputeWorker(compute_type, P, Q, R, self)
+        self._compute_worker.finished_ok.connect(self._on_compute_finished)
+        self._compute_worker.finished_err.connect(self._on_compute_error)
+        self._compute_worker.finished.connect(self._compute_worker.deleteLater)
+        self._set_compute_enabled(False)
+        self._compute_worker.start()
+
+    def _on_compute_finished(self, compute_type, result):
+        is_current = self._active_compute_revision == self._input_revision
+        self._compute_in_progress = False
+        self._compute_worker = None
+        self._active_compute_revision = None
+        self._set_compute_enabled(True)
+        if not is_current:
+            return
+        if compute_type == "divergence":
+            self.last_div_steps = result
+            self.results_panel.display_divergence(result)
+        else:
+            self.last_curl_steps = result
+            self.results_panel.display_curl(result)
+        self.tab_widget.setCurrentWidget(self.results_panel)
+
+    def _on_compute_error(self, compute_type, error_msg):
+        is_current = self._active_compute_revision == self._input_revision
+        self._compute_in_progress = False
+        self._compute_worker = None
+        self._active_compute_revision = None
+        self._set_compute_enabled(True)
+        if is_current:
+            QMessageBox.critical(self, "Computation Error", error_msg)
+
+    def on_compute_divergence(self):
+        self._start_compute("divergence")
             
     def on_compute_curl(self):
-        P, Q, R = self.input_panel.get_expressions()
-        if P is None:
-            return
-            
-        try:
-            self.last_curl_steps = compute_curl(P, Q, R)
-            self.results_panel.display_curl(self.last_curl_steps)
-            self.tab_widget.setCurrentWidget(self.results_panel)
-        except Exception as e:
-            QMessageBox.critical(self, "Computation Error", str(e))
+        self._start_compute("curl")
             
     def on_clear(self):
         self.input_panel.set_texts("", "", "")
@@ -224,7 +256,6 @@ class VectorMachineWindow(QMainWindow):
         
     def load_example(self, p_str, q_str, r_str):
         self.input_panel.set_texts(p_str, q_str, r_str)
-        self.results_panel.clear_results()
         
     def on_save_session(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Session", "", "JSON Files (*.json)")
@@ -232,7 +263,17 @@ class VectorMachineWindow(QMainWindow):
             return
             
         p, q, r = self.input_panel.get_texts()
-        save_session(file_path, p, q, r)
+        has_results = self.last_div_steps is not None or self.last_curl_steps is not None
+        try:
+            save_session(
+                file_path, p, q, r,
+                has_results=has_results,
+                divergence_steps=self.last_div_steps,
+                curl_steps=self.last_curl_steps,
+            )
+        except OSError as error:
+            QMessageBox.critical(self, "Save Error", f"Could not save session: {error}")
+            return
         QMessageBox.information(self, "Session Saved", f"Session saved successfully to {file_path}.")
         
     def on_open_session(self):
@@ -250,7 +291,13 @@ class VectorMachineWindow(QMainWindow):
         r = data.get("R", "")
         
         self.input_panel.set_texts(p, q, r)
-        self.results_panel.clear_results()
+
+        results = data.get("results", {})
+        self.last_div_steps = results.get("divergence")
+        self.last_curl_steps = results.get("curl")
+
+        self.results_panel.display_results(self.last_div_steps, self.last_curl_steps)
+
         QMessageBox.information(self, "Session Loaded", "Session loaded successfully.")
 
     def on_export(self, format_type):
@@ -279,8 +326,12 @@ class VectorMachineWindow(QMainWindow):
                 html = self.results_panel.results_text.toHtml()
                 export_pdf(file_path, html)
             elif format_type == "png":
-                pixmap = self.tab_widget.currentWidget().grab()
-                pixmap.save(file_path, "PNG")
+                if self.tab_widget.currentWidget() is self.visualization_panel:
+                    pixmap = self.visualization_panel.grab()
+                else:
+                    pixmap = self.results_panel.grab()
+                if not pixmap.save(file_path, "PNG"):
+                    raise OSError("Qt could not write the PNG file.")
                 
             QMessageBox.information(self, "Export Successful", f"Exported successfully to {file_path}")
         except Exception as e:
