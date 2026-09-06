@@ -160,6 +160,131 @@ def test_stale_compute_is_discarded():
     print("stale compute suppression: OK")
 
 
+def test_compute_worker_timeout_and_cancel():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.ui.compute_worker import ComputeWorker
+    from src.ui.app_window import VectorMachineWindow
+
+    app = QApplication.instance() or QApplication([])
+    p, _ = parse_expression("x")
+    q, _ = parse_expression("y")
+    r, _ = parse_expression("z")
+
+    # 1. Test normal execution
+    worker = ComputeWorker("divergence", p, q, r, timeout_sec=5.0)
+    results = []
+    errors = []
+    worker.finished_ok.connect(lambda t, res: results.append(res))
+    worker.finished_err.connect(lambda t, err: errors.append(err))
+    worker.start()
+    worker.wait(3000)
+    app.processEvents()
+    assert len(results) == 1 and not errors, (results, errors)
+
+    # 2. Test cancellation before finish
+    worker_cancel = ComputeWorker("divergence", p, q, r, timeout_sec=5.0)
+    cancelled_results = []
+    worker_cancel.finished_ok.connect(lambda t, res: cancelled_results.append(res))
+    worker_cancel.cancel()
+    worker_cancel.start()
+    worker_cancel.wait(3000)
+    app.processEvents()
+    assert len(cancelled_results) == 0
+
+    # 3. Test interactive cancellation via VectorMachineWindow
+    window = VectorMachineWindow()
+    window.input_panel.set_texts("x", "y", "z")
+    window.on_compute_divergence()
+    assert window.btn_cancel.isEnabled()
+    assert window._compute_in_progress
+    window.on_cancel_compute()
+    assert not window._compute_in_progress
+    assert not window.btn_cancel.isEnabled()
+    assert window.btn_divergence.isEnabled()
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+    print("compute worker timeout/cancellation: OK")
+
+
+def test_visualization_worker_async_evaluation():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.ui.visualization_worker import VisualizationWorker
+    from src.ui.visualization_panel import VisualizationPanel
+
+    app = QApplication.instance() or QApplication([])
+    p, _ = parse_expression("-y")
+    q, _ = parse_expression("x")
+    r, _ = parse_expression("0")
+
+    # 1. Test worker background evaluation
+    worker = VisualizationWorker(
+        revision_id=1,
+        p_expr=p,
+        q_expr=q,
+        r_expr=r,
+        domain=3,
+        density=4,
+        scale_factor=0.2,
+        is_2d=False,
+    )
+    results = []
+    errors = []
+    worker.finished_ok.connect(
+        lambda rev, pts, vecs, mags, is_2d, scale, elapsed: results.append(
+            (rev, pts, vecs, mags, is_2d, scale)
+        )
+    )
+    worker.finished_err.connect(lambda rev, err: errors.append(err))
+    worker.start()
+    worker.wait(5000)
+    app.processEvents()
+
+    assert not errors, errors
+    assert len(results) == 1
+    rev, pts, vecs, mags, is_2d, scale = results[0]
+    assert rev == 1
+    assert len(pts) == 4 * 4 * 4  # 64 grid points
+    assert len(vecs) == 64
+    assert len(mags) == 64
+    assert not is_2d
+
+    # 2. Test worker cancellation
+    worker_cancel = VisualizationWorker(
+        revision_id=2,
+        p_expr=p,
+        q_expr=q,
+        r_expr=r,
+        domain=3,
+        density=4,
+        scale_factor=0.2,
+        is_2d=True,
+    )
+    cancel_results = []
+    worker_cancel.finished_ok.connect(lambda *args: cancel_results.append(args))
+    worker_cancel.cancel()
+    worker_cancel.start()
+    worker_cancel.wait(5000)
+    app.processEvents()
+    assert len(cancel_results) == 0
+
+    # 3. Test screenshot export method on panel
+    panel = VisualizationPanel()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        shot_path = Path(temp_dir) / "test_shot.png"
+        ok = panel.export_screenshot(str(shot_path))
+        assert ok and shot_path.is_file() and shot_path.stat().st_size > 0
+
+    panel.deleteLater()
+    app.processEvents()
+    print("visualization worker async & screenshot: OK")
+
+
 if __name__ == "__main__":
     test_parse_and_compute()
     test_expression_validation()
@@ -168,4 +293,6 @@ if __name__ == "__main__":
     test_exports_accept_paths()
     test_input_invalidation()
     test_stale_compute_is_discarded()
+    test_compute_worker_timeout_and_cancel()
+    test_visualization_worker_async_evaluation()
     print("All debug tests passed.")

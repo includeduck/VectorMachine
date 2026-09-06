@@ -15,10 +15,10 @@ Whether you're calculating divergence, evaluating curl, or trying to visualize h
 
 ## ✨ Features
 
-- **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl.
+- **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl with execution timeout protection (10s) and interactive computation cancellation.
 - **Step-by-Step Derivations**: Don't just get the final answer. VectorMachine shows the exact formulas and unsimplified steps used to arrive at the solution.
-- **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing buttery-smooth 2D quiver plots and 3D arrow glyphs that update dynamically.
-- **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or `.png` reports.
+- **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing smooth 2D quiver plots and 3D arrow glyphs evaluated asynchronously off the GUI thread with non-blocking UI responsiveness.
+- **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or high-fidelity `.png` reports captured directly from the PyVista render buffer.
 - **Keyboard Navigation**: Highly accessible with built-in shortcuts to keep your hands on the keyboard.
 
 ---

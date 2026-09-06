@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
 from PySide6.QtCore import Qt, QTimer
 from src.core.computation import evaluate_field
 from src.core.debug_log import debug_log
+from src.ui.visualization_worker import VisualizationWorker
 
 MAX_3D_DENSITY = 15
 
@@ -24,6 +25,9 @@ class VisualizationPanel(QWidget):
         self._schedule_count = 0
         self._plot_run_count = 0
         self._last_schedule_source = "init"
+        self._viz_revision = 0
+        self._current_worker = None
+        self._status_label = None
 
         self.plot_timer = QTimer(self)
         self.plot_timer.setSingleShot(True)
@@ -73,6 +77,10 @@ class VisualizationPanel(QWidget):
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
 
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet("color: #666; font-style: italic; padding: 2px;")
+        layout.addWidget(self._status_label)
+
         self._plot_placeholder = QLabel("Open this tab to initialize visualization.")
         self._plot_placeholder.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._plot_placeholder)
@@ -82,6 +90,22 @@ class VisualizationPanel(QWidget):
         self.domain_spin.valueChanged.connect(lambda _: self.schedule_plot_update("domain"))
         self.density_spin.valueChanged.connect(lambda _: self.schedule_plot_update("density"))
         self.scale_slider.sliderReleased.connect(lambda: self.schedule_plot_update("scale"))
+
+    def export_screenshot(self, file_path: str) -> bool:
+        """Export 3D viewport screenshot directly via PyVista/VTK, or fallback to QWidget.grab."""
+        if self._vtk_initialized and self.plotter:
+            try:
+                self.plotter.screenshot(file_path)
+                return True
+            except Exception as e:
+                debug_log(
+                    "visualization_panel.py:export_screenshot",
+                    "native screenshot failed, falling back to grab",
+                    {"error": str(e)},
+                    "E",
+                )
+        pixmap = self.grab()
+        return pixmap.save(file_path, "PNG")
 
     def ensure_vtk_initialized(self):
         if self._vtk_initialized:
@@ -132,7 +156,14 @@ class VisualizationPanel(QWidget):
         self.p_expr = None
         self.q_expr = None
         self.r_expr = None
+        self._viz_revision += 1
         self.plot_timer.stop()
+        if self._current_worker and self._current_worker.isRunning():
+            self._current_worker.cancel()
+            self._current_worker = None
+        if self._status_label:
+            self._status_label.setText("")
+        self._plot_busy = False
         if self.plotter:
             self.plotter.clear()
             self.plotter.show_axes()
@@ -170,51 +201,67 @@ class VisualizationPanel(QWidget):
 
         self._plot_run_count += 1
         run_id = self._plot_run_count
+        self._viz_revision += 1
+        revision = self._viz_revision
+
+        # Cancel prior running worker if still processing
+        if self._current_worker and self._current_worker.isRunning():
+            self._current_worker.cancel()
+            self._current_worker = None
+
         debug_log(
             "visualization_panel.py:_do_update_plot",
-            "plot run started",
-            {"runId": run_id, "source": self._last_schedule_source, "plotBusy": self._plot_busy},
+            "plot run started (async)",
+            {"runId": run_id, "revision": revision, "source": self._last_schedule_source},
             "C",
         )
 
+        domain = self.domain_spin.value()
+        density = self._effective_density(
+            self.density_spin.value(),
+            self.radio_2d.isChecked(),
+        )
+        scale_factor = self.scale_slider.value() / 100.0
+        is_2d = self.radio_2d.isChecked()
+
         self._plot_busy = True
-        t0 = time.perf_counter()
+        if self._status_label:
+            self._status_label.setText("Computing vector field in background...")
+
+        self._current_worker = VisualizationWorker(
+            revision_id=revision,
+            p_expr=self.p_expr,
+            q_expr=self.q_expr,
+            r_expr=self.r_expr,
+            domain=domain,
+            density=density,
+            scale_factor=scale_factor,
+            is_2d=is_2d,
+            parent=self,
+        )
+        self._current_worker.finished_ok.connect(self._on_visualization_ready)
+        self._current_worker.finished_err.connect(self._on_visualization_error)
+        self._current_worker.finished.connect(self._current_worker.deleteLater)
+        self._current_worker.start()
+
+    def _on_visualization_ready(
+        self, revision_id, points, vectors, magnitudes, is_2d, scale_factor, elapsed_ms
+    ):
+        if revision_id != self._viz_revision:
+            return
+
+        self._plot_busy = False
+        if self._status_label:
+            self._status_label.setText("")
+
+        if not self._vtk_initialized or not self.plotter:
+            return
+
         try:
             self.plotter.clear()
             self.plotter.show_axes()
-            
-            domain = self.domain_spin.value()
-            density = self._effective_density(
-                self.density_spin.value(),
-                self.radio_2d.isChecked(),
-            )
-            scale_factor = self.scale_slider.value() / 100.0
-            is_2d = self.radio_2d.isChecked()
-            
-            x = np.linspace(-domain, domain, density)
-            y = np.linspace(-domain, domain, density)
-            if is_2d:
-                z = np.array([0.0])
-            else:
-                z = np.linspace(-domain, domain, density)
-                
-            x_grid, y_grid, z_grid = np.meshgrid(x, y, z, indexing='ij')
-            
-            u, v, w = evaluate_field(self.p_expr, self.q_expr, self.r_expr, x_grid, y_grid, z_grid)
-            
-            points = np.c_[x_grid.ravel(), y_grid.ravel(), z_grid.ravel()]
-            vectors = np.c_[u.ravel(), v.ravel(), w.ravel()]
 
-            if np.iscomplexobj(vectors):
-                real_vectors = np.real(vectors)
-                valid_vectors = np.isclose(np.imag(vectors), 0.0, equal_nan=False)
-                valid_mask = np.all(valid_vectors, axis=1)
-                vectors = real_vectors
-            else:
-                valid_mask = np.ones(len(vectors), dtype=bool)
-            valid_mask &= np.all(np.isfinite(vectors), axis=1)
-
-            if not np.any(valid_mask):
+            if len(points) == 0:
                 self.plotter.add_text(
                     "No finite real vectors in the selected domain.",
                     position="upper_left",
@@ -223,48 +270,53 @@ class VisualizationPanel(QWidget):
                 self.plotter.render()
                 return
 
-            points = points[valid_mask]
-            vectors = vectors[valid_mask]
-            
             import pyvista as pv
+
             cloud = pv.PolyData(points)
             cloud["vectors"] = vectors
-            
-            magnitudes = np.linalg.norm(vectors, axis=1)
             cloud["magnitude"] = magnitudes
-            
+
             arrows = cloud.glyph(orient="vectors", scale="magnitude", factor=scale_factor)
-            
             self.plotter.add_mesh(arrows, scalars="magnitude", cmap="viridis", show_scalar_bar=True)
-            
+
             if is_2d:
                 self.plotter.view_xy()
             else:
                 self.plotter.view_isometric()
-                
+
             self.plotter.render()
 
-            elapsed_ms = (time.perf_counter() - t0) * 1000
             debug_log(
-                "visualization_panel.py:_do_update_plot",
-                "plot updated",
+                "visualization_panel.py:_on_visualization_ready",
+                "plot updated (async)",
                 {
-                    "runId": run_id,
-                    "source": self._last_schedule_source,
+                    "revision": revision_id,
                     "elapsedMs": round(elapsed_ms, 2),
-                    "density": density,
-                    "is2d": is_2d,
-                    "gridPoints": int(x_grid.size),
+                    "points": len(points),
                 },
                 "E",
             )
         except Exception as e:
             debug_log(
-                "visualization_panel.py:_do_update_plot",
-                "plot error",
-                {"runId": run_id, "error": str(e)},
+                "visualization_panel.py:_on_visualization_ready",
+                "plot render error",
+                {"revision": revision_id, "error": str(e)},
                 "E",
             )
             QMessageBox.warning(self, "Visualization Error", str(e))
-        finally:
-            self._plot_busy = False
+
+    def _on_visualization_error(self, revision_id, error_msg):
+        if revision_id != self._viz_revision:
+            return
+
+        self._plot_busy = False
+        if self._status_label:
+            self._status_label.setText("")
+
+        debug_log(
+            "visualization_panel.py:_on_visualization_error",
+            "worker error",
+            {"revision": revision_id, "error": error_msg},
+            "E",
+        )
+        QMessageBox.warning(self, "Visualization Error", error_msg)

@@ -66,12 +66,17 @@ class VectorMachineWindow(QMainWindow):
         self.btn_curl.setShortcut("Ctrl+Shift+Return")
         self.btn_curl.setToolTip("Compute the curl of the field (Ctrl+Shift+Return)")
         
+        self.btn_cancel = QPushButton("Cancel Computation")
+        self.btn_cancel.setEnabled(False)
+        self.btn_cancel.setToolTip("Cancel currently running computation")
+        
         self.btn_clear = QPushButton("Clear")
         self.btn_clear.setShortcut("Ctrl+Del")
         self.btn_clear.setToolTip("Clear all inputs and results (Ctrl+Del)")
         
         left_layout.addWidget(self.btn_divergence)
         left_layout.addWidget(self.btn_curl)
+        left_layout.addWidget(self.btn_cancel)
         left_layout.addWidget(self.btn_clear)
         left_layout.addStretch()
         
@@ -87,6 +92,7 @@ class VectorMachineWindow(QMainWindow):
         
         self.btn_divergence.clicked.connect(self.on_compute_divergence)
         self.btn_curl.clicked.connect(self.on_compute_curl)
+        self.btn_cancel.clicked.connect(self.on_cancel_compute)
         self.btn_clear.clicked.connect(self.on_clear)
         self.input_panel.inputChanged.connect(self.update_state)
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
@@ -168,6 +174,7 @@ class VectorMachineWindow(QMainWindow):
         allowed = enabled and self.input_panel.is_valid() and not self._compute_in_progress
         self.btn_divergence.setEnabled(allowed)
         self.btn_curl.setEnabled(allowed)
+        self.btn_cancel.setEnabled(self._compute_in_progress)
 
     def update_state(self):
         self._input_revision += 1
@@ -209,12 +216,26 @@ class VectorMachineWindow(QMainWindow):
 
         self._compute_in_progress = True
         self._active_compute_revision = self._input_revision
-        self._compute_worker = ComputeWorker(compute_type, P, Q, R, self)
+        self._compute_worker = ComputeWorker(compute_type, P, Q, R, timeout_sec=10.0, parent=self)
         self._compute_worker.finished_ok.connect(self._on_compute_finished)
         self._compute_worker.finished_err.connect(self._on_compute_error)
         self._compute_worker.finished.connect(self._compute_worker.deleteLater)
         self._set_compute_enabled(False)
         self._compute_worker.start()
+
+    def on_cancel_compute(self):
+        if self._compute_worker and self._compute_worker.isRunning():
+            self._compute_worker.cancel()
+            self._compute_worker = None
+        self._compute_in_progress = False
+        self._active_compute_revision = None
+        self._set_compute_enabled(True)
+        debug_log(
+            "app_window.py:on_cancel_compute",
+            "computation cancelled by user",
+            {},
+            "A",
+        )
 
     def _on_compute_finished(self, compute_type, result):
         is_current = self._active_compute_revision == self._input_revision
@@ -327,11 +348,12 @@ class VectorMachineWindow(QMainWindow):
                 export_pdf(file_path, html)
             elif format_type == "png":
                 if self.tab_widget.currentWidget() is self.visualization_panel:
-                    pixmap = self.visualization_panel.grab()
+                    if not self.visualization_panel.export_screenshot(file_path):
+                        raise OSError("Could not capture 3D visualization screenshot.")
                 else:
                     pixmap = self.results_panel.grab()
-                if not pixmap.save(file_path, "PNG"):
-                    raise OSError("Qt could not write the PNG file.")
+                    if not pixmap.save(file_path, "PNG"):
+                        raise OSError("Qt could not write the PNG file.")
                 
             QMessageBox.information(self, "Export Successful", f"Exported successfully to {file_path}")
         except Exception as e:

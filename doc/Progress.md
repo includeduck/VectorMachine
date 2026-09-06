@@ -39,3 +39,10 @@ With Milestones 1, 2, and 3 completed, the application now supports input, calcu
 - Made diagnostic disk logging opt-in via `VECTORMACHINE_DEBUG_LOG`, avoiding routine I/O during normal use.
 - Hardened session persistence with UTF-8, atomic writes, schema validation, and user-facing save failure handling.
 - Added headless regression checks for secure parsing, cache-backed evaluation, session validation, all export formats, immediate input invalidation, and stale-computation suppression.
+
+## Phase 1 Recovery: Concurrency, Robust Visualization & Computation Guards
+
+- **Asynchronous 3D Visualization Pipeline**: Created `VisualizationWorker` (`src/ui/visualization_worker.py`) to execute numerical meshgrid generation and `evaluate_field()` calculations in a dedicated background `QThread`. The Qt GUI thread no longer blocks when rendering vector fields.
+- **Native OpenGL Screenshot Capture**: Added `export_screenshot()` to `VisualizationPanel` using PyVista's native `plotter.screenshot()`, resolving blank and corrupted image captures caused by `QWidget.grab()` on hardware OpenGL viewports.
+- **Computation Timeout & Cancellation**: Enhanced `ComputeWorker` with a 10-second `ThreadPoolExecutor` timeout to prevent runaway SymPy simplifications, and added a user-facing "Cancel Computation" button (`btn_cancel`) in `VectorMachineWindow` to safely abort pending calculations and prevent UI lockouts.
+- **Repository Hygiene**: Cleaned up the repository by removing the redundant `.gitignore.txt` and updating `.gitignore` with comprehensive rules for temporary, log, and analysis artifacts.
