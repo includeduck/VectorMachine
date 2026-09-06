@@ -285,6 +285,117 @@ def test_visualization_worker_async_evaluation():
     print("visualization worker async & screenshot: OK")
 
 
+def test_worker_lifecycle_libshiboken_safety():
+    """Verify that finished/deleted QThreads don't trigger libshiboken C++ object deleted crashes."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.ui.visualization_panel import VisualizationPanel
+    from src.ui.visualization_worker import VisualizationWorker
+    from src.ui.app_window import VectorMachineWindow
+
+    app = QApplication.instance() or QApplication([])
+
+    # 1. Panel level lifecycle test
+    p, _ = parse_expression("x")
+    q, _ = parse_expression("y")
+    r, _ = parse_expression("z")
+
+    panel = VisualizationPanel()
+    worker = VisualizationWorker(
+        revision_id=1,
+        p_expr=p,
+        q_expr=q,
+        r_expr=r,
+        domain=3,
+        density=4,
+        scale_factor=0.2,
+        is_2d=False,
+        parent=panel,
+    )
+    panel._current_worker = worker
+    worker.finished_ok.connect(panel._on_visualization_ready)
+    worker.finished_err.connect(panel._on_visualization_error)
+    worker.finished.connect(lambda w=worker: panel._on_worker_finished(w))
+    worker.finished.connect(worker.deleteLater)
+    worker.start()
+    worker.wait(3000)
+    app.sendPostedEvents(None, 0)
+    app.processEvents()
+
+    # Neither clear_plot nor repeated worker start/cancel should crash on deleted C++ object
+    panel.clear_plot()
+    worker2 = VisualizationWorker(
+        revision_id=2,
+        p_expr=p,
+        q_expr=q,
+        r_expr=r,
+        domain=3,
+        density=4,
+        scale_factor=0.2,
+        is_2d=False,
+        parent=panel,
+    )
+    panel._current_worker = worker2
+    worker2.finished_ok.connect(panel._on_visualization_ready)
+    worker2.finished_err.connect(panel._on_visualization_error)
+    worker2.finished.connect(lambda w=worker2: panel._on_worker_finished(w))
+    worker2.finished.connect(worker2.deleteLater)
+    worker2.start()
+    worker2.wait(3000)
+    app.sendPostedEvents(None, 0)
+    app.processEvents()
+
+    panel._cancel_active_worker()
+    panel.clear_plot()
+    panel.deleteLater()
+    app.processEvents()
+
+    # 2. Window level interaction test (simulating finished viz worker, clearing, and re-validating)
+    window = VectorMachineWindow()
+    worker_win = VisualizationWorker(
+        revision_id=3,
+        p_expr=p,
+        q_expr=q,
+        r_expr=r,
+        domain=5,
+        density=10,
+        scale_factor=0.2,
+        is_2d=False,
+        parent=window.visualization_panel,
+    )
+    window.visualization_panel._current_worker = worker_win
+    worker_win.finished_ok.connect(window.visualization_panel._on_visualization_ready)
+    worker_win.finished_err.connect(window.visualization_panel._on_visualization_error)
+    worker_win.finished.connect(lambda w=worker_win: window.visualization_panel._on_worker_finished(w))
+    worker_win.finished.connect(worker_win.deleteLater)
+    worker_win.start()
+    worker_win.wait(3000)
+    app.sendPostedEvents(None, 0)
+    app.processEvents()
+
+    # Now on_clear, update_state, and cancel_compute
+    window.on_clear()
+    app.processEvents()
+    window.update_state()
+    app.processEvents()
+
+    # Compute worker cancellation/finish test
+    window.input_panel.set_texts("x", "y", "z")
+    window.on_compute_divergence()
+    if window._compute_worker:
+        window._compute_worker.wait(3000)
+    app.sendPostedEvents(None, 0)
+    app.processEvents()
+    window.on_cancel_compute()
+    window.on_clear()
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+    print("worker lifecycle libshiboken safety: OK")
+
+
 if __name__ == "__main__":
     test_parse_and_compute()
     test_expression_validation()
@@ -295,4 +406,5 @@ if __name__ == "__main__":
     test_stale_compute_is_discarded()
     test_compute_worker_timeout_and_cancel()
     test_visualization_worker_async_evaluation()
+    test_worker_lifecycle_libshiboken_safety()
     print("All debug tests passed.")

@@ -2,6 +2,7 @@ import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QFileDialog, QMessageBox, QMenuBar, QMenu, QTabWidget)
 from PySide6.QtGui import QAction, QActionGroup
+from shiboken6 import isValid
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
 from src.ui.visualization_panel import VisualizationPanel
@@ -206,6 +207,20 @@ class VectorMachineWindow(QMainWindow):
                 "A",
             )
 
+    def _cancel_compute_worker(self):
+        worker = self._compute_worker
+        self._compute_worker = None
+        if worker is not None:
+            try:
+                if isValid(worker) and worker.isRunning():
+                    worker.cancel()
+            except (RuntimeError, ReferenceError):
+                pass
+
+    def _on_compute_worker_finished(self, worker):
+        if self._compute_worker is worker:
+            self._compute_worker = None
+
     def _start_compute(self, compute_type):
         P, Q, R = self.input_panel.get_expressions()
         if P is None:
@@ -216,17 +231,17 @@ class VectorMachineWindow(QMainWindow):
 
         self._compute_in_progress = True
         self._active_compute_revision = self._input_revision
-        self._compute_worker = ComputeWorker(compute_type, P, Q, R, timeout_sec=10.0, parent=self)
-        self._compute_worker.finished_ok.connect(self._on_compute_finished)
-        self._compute_worker.finished_err.connect(self._on_compute_error)
-        self._compute_worker.finished.connect(self._compute_worker.deleteLater)
+        worker = ComputeWorker(compute_type, P, Q, R, timeout_sec=10.0, parent=self)
+        self._compute_worker = worker
+        worker.finished_ok.connect(self._on_compute_finished)
+        worker.finished_err.connect(self._on_compute_error)
+        worker.finished.connect(lambda w=worker: self._on_compute_worker_finished(w))
+        worker.finished.connect(worker.deleteLater)
         self._set_compute_enabled(False)
-        self._compute_worker.start()
+        worker.start()
 
     def on_cancel_compute(self):
-        if self._compute_worker and self._compute_worker.isRunning():
-            self._compute_worker.cancel()
-            self._compute_worker = None
+        self._cancel_compute_worker()
         self._compute_in_progress = False
         self._active_compute_revision = None
         self._set_compute_enabled(True)
@@ -269,6 +284,8 @@ class VectorMachineWindow(QMainWindow):
         self._start_compute("curl")
             
     def on_clear(self):
+        if self._compute_in_progress:
+            self.on_cancel_compute()
         self.input_panel.set_texts("", "", "")
         self.results_panel.clear_results()
         self.visualization_panel.clear_plot()

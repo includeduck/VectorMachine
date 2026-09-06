@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QGroupBox, QSlider, QLabel, QRadioButton, 
                                QButtonGroup, QSpinBox, QMessageBox)
 from PySide6.QtCore import Qt, QTimer
+from shiboken6 import isValid
 from src.core.computation import evaluate_field
 from src.core.debug_log import debug_log
 from src.ui.visualization_worker import VisualizationWorker
@@ -152,15 +153,27 @@ class VisualizationPanel(QWidget):
         )
         self.schedule_plot_update(source)
         
+    def _cancel_active_worker(self):
+        worker = self._current_worker
+        self._current_worker = None
+        if worker is not None:
+            try:
+                if isValid(worker) and worker.isRunning():
+                    worker.cancel()
+            except (RuntimeError, ReferenceError):
+                pass
+
+    def _on_worker_finished(self, worker):
+        if self._current_worker is worker:
+            self._current_worker = None
+
     def clear_plot(self):
         self.p_expr = None
         self.q_expr = None
         self.r_expr = None
         self._viz_revision += 1
         self.plot_timer.stop()
-        if self._current_worker and self._current_worker.isRunning():
-            self._current_worker.cancel()
-            self._current_worker = None
+        self._cancel_active_worker()
         if self._status_label:
             self._status_label.setText("")
         self._plot_busy = False
@@ -205,9 +218,7 @@ class VisualizationPanel(QWidget):
         revision = self._viz_revision
 
         # Cancel prior running worker if still processing
-        if self._current_worker and self._current_worker.isRunning():
-            self._current_worker.cancel()
-            self._current_worker = None
+        self._cancel_active_worker()
 
         debug_log(
             "visualization_panel.py:_do_update_plot",
@@ -228,7 +239,7 @@ class VisualizationPanel(QWidget):
         if self._status_label:
             self._status_label.setText("Computing vector field in background...")
 
-        self._current_worker = VisualizationWorker(
+        worker = VisualizationWorker(
             revision_id=revision,
             p_expr=self.p_expr,
             q_expr=self.q_expr,
@@ -239,16 +250,25 @@ class VisualizationPanel(QWidget):
             is_2d=is_2d,
             parent=self,
         )
-        self._current_worker.finished_ok.connect(self._on_visualization_ready)
-        self._current_worker.finished_err.connect(self._on_visualization_error)
-        self._current_worker.finished.connect(self._current_worker.deleteLater)
-        self._current_worker.start()
+        self._current_worker = worker
+        worker.finished_ok.connect(self._on_visualization_ready)
+        worker.finished_err.connect(self._on_visualization_error)
+        worker.finished.connect(lambda w=worker: self._on_worker_finished(w))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     def _on_visualization_ready(
         self, revision_id, points, vectors, magnitudes, is_2d, scale_factor, elapsed_ms
     ):
         if revision_id != self._viz_revision:
             return
+
+        if self._current_worker is not None:
+            try:
+                if isValid(self._current_worker) and not self._current_worker.isRunning():
+                    self._current_worker = None
+            except (RuntimeError, ReferenceError):
+                self._current_worker = None
 
         self._plot_busy = False
         if self._status_label:
@@ -308,6 +328,13 @@ class VisualizationPanel(QWidget):
     def _on_visualization_error(self, revision_id, error_msg):
         if revision_id != self._viz_revision:
             return
+
+        if self._current_worker is not None:
+            try:
+                if isValid(self._current_worker) and not self._current_worker.isRunning():
+                    self._current_worker = None
+            except (RuntimeError, ReferenceError):
+                self._current_worker = None
 
         self._plot_busy = False
         if self._status_label:
