@@ -1,7 +1,8 @@
 from html import escape
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QTextEdit
 from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QGroupBox, QTextEdit, QVBoxLayout, QWidget
+
 
 class ResultsPanel(QWidget):
     def __init__(self, parent=None):

@@ -29,9 +29,11 @@ def _lazy_init():
     if sp is not None:
         return
         
-    import sympy as _sp
-    from sympy.parsing.sympy_parser import parse_expr as _pe, standard_transformations as _st, implicit_multiplication_application as _ima
     import numpy as _np
+    import sympy as _sp
+    from sympy.parsing.sympy_parser import implicit_multiplication_application as _ima
+    from sympy.parsing.sympy_parser import parse_expr as _pe
+    from sympy.parsing.sympy_parser import standard_transformations as _st
     
     sp = _sp
     parse_expr = _pe
@@ -96,7 +98,7 @@ def parse_expression(expr_str):
             return None, "Expression must use only x, y, and z."
         return expr, None
     except Exception as e:
-        return None, f"Syntax Error: {str(e)}"
+        return None, f"Syntax Error: {e!s}"
 
 def _get_lambdified(expressions):
     """Return one cached NumPy function for all three field components."""
@@ -178,6 +180,7 @@ def evaluate_field(P_expr, Q_expr, R_expr, x_grid, y_grid, z_grid):
     Returns u, v, w as numpy arrays.
     """
     import time
+
     from src.core.debug_log import debug_log
 
     _lazy_init()

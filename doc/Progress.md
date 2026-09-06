@@ -47,3 +47,19 @@ With Milestones 1, 2, and 3 completed, the application now supports input, calcu
 - **Computation Timeout & Cancellation**: Enhanced `ComputeWorker` with a 10-second `ThreadPoolExecutor` timeout to prevent runaway SymPy simplifications, and added a user-facing "Cancel Computation" button (`btn_cancel`) in `VectorMachineWindow` to safely abort pending calculations and prevent UI lockouts.
 - **Worker Thread Lifecycle & Shiboken Safety**: Fixed `RuntimeError: libshiboken: Internal C++ object already deleted` by clearing thread references on finish, disconnecting stale wrappers, and guarding worker checks (`isRunning()`, `cancel()`) with `shiboken6.isValid()`.
 - **Repository Hygiene**: Cleaned up the repository by removing the redundant `.gitignore.txt` and updating `.gitignore` with comprehensive rules for temporary, log, and analysis artifacts.
+
+## Milestone 4: Cross-Platform CI Pipeline & Dedicated Testing Framework
+
+- **Modular Pytest Architecture (`tests/`)**:
+  - Organized test suites into dedicated modules: `test_computation.py`, `test_session.py`, `test_export.py`, `test_workers.py`, and `test_ui.py`.
+  - Added `tests/conftest.py` providing session-scoped headless `QApplication` fixtures with `QT_QPA_PLATFORM=offscreen` to run Qt and VTK tests safely in headless and CI runners.
+  - Implemented 47 automated tests with 72%+ test coverage across the core computation, persistence, export, worker concurrency, and UI layers.
+- **Robust PDF Export (`src/core/export.py`)**:
+  - Transitioned from `QPrinter` to native Qt `QPdfWriter`, eliminating Windows COM print spooler errors (`code 0x80040155`) and guaranteeing automated directory creation.
+- **GitHub Actions CI Automation (`.github/workflows/ci.yml`)**:
+  - Configured multi-platform matrix CI running on `ubuntu-latest` (with Xvfb and Mesa/OpenGL libraries) and `windows-latest`.
+  - Python matrix coverage for Python 3.11 and 3.12.
+  - Incorporated automated linting (`ruff`), Python bytecode compilation verification (`compileall`), test execution (`pytest`), and coverage artifact generation.
+- **Developer Experience**:
+  - Added `requirements-dev.txt`, `pytest.ini`, and `ruff.toml` for standardized testing, linting, and quality enforcement.
+

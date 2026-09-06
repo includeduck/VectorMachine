@@ -1,11 +1,18 @@
-import time
-import numpy as np
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
-                               QGroupBox, QSlider, QLabel, QRadioButton, 
-                               QButtonGroup, QSpinBox, QMessageBox)
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QRadioButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 from shiboken6 import isValid
-from src.core.computation import evaluate_field
+
 from src.core.debug_log import debug_log
 from src.ui.visualization_worker import VisualizationWorker
 
@@ -117,7 +124,6 @@ class VisualizationPanel(QWidget):
         layout = self.layout()
         try:
             from pyvistaqt import QtInteractor
-            import pyvista as pv
 
             self._plot_placeholder.hide()
             self.vtk_widget = QtInteractor(self)

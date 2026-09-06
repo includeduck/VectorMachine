@@ -1,0 +1,1 @@
+"""VectorMachine dedicated test suite."""

@@ -3,7 +3,6 @@ import os
 import tempfile
 from datetime import datetime
 
-
 _DIVERGENCE_KEYS = frozenset({
     "dP_dx", "dQ_dy", "dR_dz", "formula", "unsimplified", "final",
 })
@@ -91,4 +90,4 @@ def load_session(filepath):
             return None, error
         return data, None
     except Exception as e:
-        return None, f"Failed to load session: {str(e)}"
+        return None, f"Failed to load session: {e!s}"

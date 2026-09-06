@@ -1,8 +1,10 @@
 import os
-from PySide6.QtGui import QTextDocument
-from PySide6.QtPrintSupport import QPrinter
+
+from PySide6.QtGui import QPageSize, QPdfWriter, QTextDocument
+
 
 def export_text(filepath, p_text, q_text, r_text, div_steps, curl_steps):
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write("VectorMachine Export\n")
         f.write("="*20 + "\n\n")
@@ -25,6 +27,7 @@ def export_text(filepath, p_text, q_text, r_text, div_steps, curl_steps):
             f.write(f"Final Vector: < {curl_steps['final_i']}, {curl_steps['final_j']}, {curl_steps['final_k']} >\n")
 
 def export_markdown(filepath, p_text, q_text, r_text, div_steps, curl_steps):
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write("# VectorMachine Export\n\n")
         
@@ -44,11 +47,9 @@ def export_markdown(filepath, p_text, q_text, r_text, div_steps, curl_steps):
             f.write(f"- **Final Vector**: `< {curl_steps['final_i']}, {curl_steps['final_j']}, {curl_steps['final_k']} >`\n")
 
 def export_pdf(filepath, html_content):
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
     doc = QTextDocument()
     doc.setHtml(html_content)
-    
-    printer = QPrinter(QPrinter.HighResolution)
-    printer.setOutputFormat(QPrinter.PdfFormat)
-    printer.setOutputFileName(str(filepath))
-    
-    doc.print_(printer)
+    writer = QPdfWriter(str(filepath))
+    writer.setPageSize(QPageSize(QPageSize.A4))
+    doc.print_(writer)

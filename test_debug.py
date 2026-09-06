@@ -117,6 +117,7 @@ def test_input_invalidation():
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
+
     from src.ui.input_panel import InputPanel
 
     app = QApplication.instance() or QApplication([])
@@ -138,6 +139,7 @@ def test_stale_compute_is_discarded():
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
+
     from src.ui.app_window import VectorMachineWindow
 
     app = QApplication.instance() or QApplication([])
@@ -164,8 +166,9 @@ def test_compute_worker_timeout_and_cancel():
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
-    from src.ui.compute_worker import ComputeWorker
+
     from src.ui.app_window import VectorMachineWindow
+    from src.ui.compute_worker import ComputeWorker
 
     app = QApplication.instance() or QApplication([])
     p, _ = parse_expression("x")
@@ -214,8 +217,9 @@ def test_visualization_worker_async_evaluation():
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
-    from src.ui.visualization_worker import VisualizationWorker
+
     from src.ui.visualization_panel import VisualizationPanel
+    from src.ui.visualization_worker import VisualizationWorker
 
     app = QApplication.instance() or QApplication([])
     p, _ = parse_expression("-y")
@@ -290,9 +294,10 @@ def test_worker_lifecycle_libshiboken_safety():
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
+
+    from src.ui.app_window import VectorMachineWindow
     from src.ui.visualization_panel import VisualizationPanel
     from src.ui.visualization_worker import VisualizationWorker
-    from src.ui.app_window import VectorMachineWindow
 
     app = QApplication.instance() or QApplication([])
 

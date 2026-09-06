@@ -2,6 +2,9 @@
   <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Nabla_symbol.svg" alt="VectorMachine Logo" width="120" height="120">
   <h1>VectorMachine</h1>
   <p><strong>A Desktop Application for Symbolic Vector Calculus and 3D Field Visualization</strong></p>
+  <p>
+    <a href="https://github.com/includeduck/VectorMachine/actions/workflows/ci.yml"><img src="https://github.com/includeduck/VectorMachine/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline"></a>
+  </p>
   <br/>
 </div>
 
@@ -46,6 +49,22 @@ pip install -r requirements.txt
 ### Running the App
 ```bash
 python src/main.py
+```
+
+### Running Tests & Quality Assurance
+Install development and test dependencies:
+```bash
+pip install -r requirements-dev.txt
+```
+
+Run the modular test suite with coverage:
+```bash
+pytest --cov=src --cov-report=term
+```
+
+Run code sanity and linting checks:
+```bash
+ruff check .
 ```
 
 ---

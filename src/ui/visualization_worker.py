@@ -1,6 +1,8 @@
 import time
+
 import numpy as np
 from PySide6.QtCore import QThread, Signal
+
 from src.core.computation import evaluate_field
 
 

@@ -1,17 +1,26 @@
-import os
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                               QPushButton, QFileDialog, QMessageBox, QMenuBar, QMenu, QTabWidget)
 from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 from shiboken6 import isValid
+
+from src.core.debug_log import debug_log
+from src.core.export import export_markdown, export_pdf, export_text
+from src.core.session import load_session, save_session
+from src.core.settings import get_theme, set_theme
+from src.ui.compute_worker import ComputeWorker
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
-from src.ui.visualization_panel import VisualizationPanel
-from src.ui.compute_worker import ComputeWorker
 from src.ui.themes import stylesheet_for
-from src.core.session import save_session, load_session
-from src.core.export import export_text, export_markdown, export_pdf
-from src.core.settings import get_theme, set_theme
-from src.core.debug_log import debug_log
+from src.ui.visualization_panel import VisualizationPanel
+
 
 class VectorMachineWindow(QMainWindow):
     def __init__(self):
@@ -374,4 +383,4 @@ class VectorMachineWindow(QMainWindow):
                 
             QMessageBox.information(self, "Export Successful", f"Exported successfully to {file_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", f"Failed to export: {str(e)}")
+            QMessageBox.critical(self, "Export Error", f"Failed to export: {e!s}")

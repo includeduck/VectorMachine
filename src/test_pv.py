@@ -1,8 +1,9 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+
 import pyvista as pv
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
-import numpy as np
+
 
 class MainWindow(QMainWindow):
     def __init__(self):

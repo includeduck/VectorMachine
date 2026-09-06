@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 *.ini
+!pytest.ini
 desktop.ini
 .cursor/
 debug-*.log
@@ -13,3 +14,9 @@ debug-*.log
 *.tmp
 graphify-out/
 .graphify*
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+

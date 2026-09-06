@@ -1,0 +1,114 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, master, Fix ]
+  pull_request:
+    branches: [ main, master, Fix ]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Code Sanity & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run Ruff Linter
+        run: |
+          ruff check .
+
+      - name: Verify Python Compilation
+        run: |
+          python -m compileall src tests test_debug.py
+
+  test:
+    name: Test (${{ matrix.os }} - Python ${{ matrix.python-version }})
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+        python-version: [ "3.11", "3.12" ]
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Linux GUI/OpenGL dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libgl1-mesa-glx \
+            libegl1 \
+            libglx-mesa0 \
+            libxkbcommon-x11-0 \
+            xvfb
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run Pytest Test Suite (Linux via Xvfb)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a pytest -v --cov=src --cov-report=xml --cov-report=term
+
+      - name: Run Pytest Test Suite (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          pytest -v --cov=src --cov-report=xml --cov-report=term
+
+      - name: Run Legacy Debug Test Suite
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a python test_debug.py
+
+      - name: Run Legacy Debug Test Suite (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python test_debug.py
+
+      - name: Smoke Test Application Startup
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a python -c "from PySide6.QtWidgets import QApplication; from src.ui.app_window import VectorMachineWindow; app = QApplication([]); w = VectorMachineWindow(); w.show(); app.processEvents(); w.close(); print('App smoke test: OK')"
+
+      - name: Smoke Test Application Startup (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python -c "from PySide6.QtWidgets import QApplication; from src.ui.app_window import VectorMachineWindow; app = QApplication([]); w = VectorMachineWindow(); w.show(); app.processEvents(); w.close(); print('App smoke test: OK')"
+
+      - name: Upload Test Coverage Artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.12'
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7

@@ -1,8 +1,16 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
-                               QLabel, QLineEdit, QGroupBox, QFormLayout)
-from PySide6.QtCore import Signal, QTimer
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import (
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.core.computation import parse_expression
 from src.core.debug_log import debug_log
+
 
 class InputPanel(QWidget):
     inputChanged = Signal()
