@@ -97,6 +97,11 @@ class VisualizationPanel(QWidget):
         self.radio_3d.toggled.connect(lambda checked: self.schedule_plot_update("radio_3d") if checked else None)
         self.domain_spin.valueChanged.connect(lambda _: self.schedule_plot_update("domain"))
         self.density_spin.valueChanged.connect(lambda _: self.schedule_plot_update("density"))
+        # Keyboard, wheel and groove clicks only emit valueChanged; drags emit
+        # it on every step, so those wait for sliderReleased instead.
+        self.scale_slider.valueChanged.connect(
+            lambda _: None if self.scale_slider.isSliderDown() else self.schedule_plot_update("scale")
+        )
         self.scale_slider.sliderReleased.connect(lambda: self.schedule_plot_update("scale"))
 
     def export_screenshot(self, file_path: str) -> bool:
@@ -168,6 +173,17 @@ class VisualizationPanel(QWidget):
                     worker.cancel()
             except (RuntimeError, ReferenceError):
                 pass
+
+    def stop_workers(self, timeout_ms=2000):
+        """Cancel any pending plot and wait (bounded) for its worker to exit."""
+        worker = self._current_worker
+        self.plot_timer.stop()
+        self._cancel_active_worker()
+        try:
+            if worker is not None and isValid(worker):
+                worker.wait(timeout_ms)
+        except (RuntimeError, ReferenceError):
+            pass
 
     def _on_worker_finished(self, worker):
         if self._current_worker is worker:
