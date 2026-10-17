@@ -18,10 +18,10 @@ Whether you're calculating divergence, evaluating curl, or trying to visualize h
 
 ## ✨ Features
 
-- **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl with execution timeout protection (10s) and interactive computation cancellation.
+- **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl SymPy runs in a separate process, so the 10 s timeout and the Cancel button stop a runaway simplification immediately instead of leaving it running in the background.
 - **Worked Steps**: Alongside the final answer, VectorMachine shows the formula, every partial derivative, and the unsimplified expression before simplification. (It does not yet name the differentiation rules, such as the product or chain rule, behind each derivative.)
-- **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing smooth 2D quiver plots and 3D arrow glyphs evaluated asynchronously off the GUI thread with non-blocking UI responsiveness.
-- **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or high-fidelity `.png` reports captured directly from the PyVista render buffer.
+- **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing 2D quiver plots and 3D arrow glyphs. The field is evaluated off the GUI thread, and arrows are scaled to the grid so large domains and poles stay readable. On machines without usable OpenGL, a Matplotlib view takes over automatically.
+- **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or `.png` images captured directly from the PyVista render buffer (or from the Matplotlib view when that is in use). PDF exports always use light-theme colours.
 - **Keyboard Navigation**: Highly accessible with built-in shortcuts to keep your hands on the keyboard.
 
 ---
@@ -91,14 +91,26 @@ ruff check .
 - **Right Click & Drag**: Zoom in/out
 - **Middle Click & Drag**: Pan camera
 
+### Without OpenGL
+Remote desktops, virtual machines and missing graphics drivers often can't provide the OpenGL context that PyVista/VTK needs. When the 3D view fails to start, the Visualization tab says why and switches to a basic Matplotlib view (a 2D quiver, or a 3D quiver in 3D mode) that uses the same settings, theme and PNG export. It redraws more slowly and can't be rotated with the mouse. **Retry 3D view** tries the hardware renderer again, for example after a driver update.
+
 ---
 
 ## 🏗️ Architecture
 
 VectorMachine is designed around three core layers:
-1. **Core Computation (`src/core/`)**: Handles all parsing, SymPy evaluations, Numpy vectorization, and data serialization.
-2. **User Interface (`src/ui/`)**: A modular PySide6 application structured with standalone components for inputs, results, and visualization.
-3. **Documentation (`doc/`)**: Detailed internal specs, milestone plans, and progress tracking.
+1. **Core (`src/core/`)**: headless logic.
+   - `computation.py`: sandboxed parsing (whitelisted names, a 1000-digit limit on exact numbers), divergence, curl and NumPy field evaluation.
+   - `compute_process.py`: the killable SymPy child process.
+   - `session.py`: versioned JSON sessions.
+   - `export.py`: TXT, Markdown and PDF output.
+   - `settings.py`: persisted preferences.
+2. **User Interface (`src/ui/`)**: PySide6 components.
+   - The main window and the input, results and visualization panels.
+   - Background workers for computation and field evaluation.
+   - `themes.py`, which holds the stylesheets and the WCAG-AA colour palettes.
+   - `mpl_fallback.py`, the Matplotlib renderer used when OpenGL is unavailable.
+3. **Documentation (`doc/`)**: internal specs, milestone plans and progress tracking. `bugreport.md` records the bug audit and how each item was resolved, and `Weakness.md` is the architectural critique with its current status.
 
 ---
 

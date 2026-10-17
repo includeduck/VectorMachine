@@ -44,7 +44,7 @@ With Milestones 1, 2, and 3 completed, the application now supports input, calcu
 
 - **Asynchronous 3D Visualization Pipeline**: Created `VisualizationWorker` (`src/ui/visualization_worker.py`) to execute numerical meshgrid generation and `evaluate_field()` calculations in a dedicated background `QThread`. The Qt GUI thread no longer blocks when rendering vector fields.
 - **Native OpenGL Screenshot Capture**: Added `export_screenshot()` to `VisualizationPanel` using PyVista's native `plotter.screenshot()`, resolving blank and corrupted image captures caused by `QWidget.grab()` on hardware OpenGL viewports.
-- **Computation Timeout & Cancellation**: Enhanced `ComputeWorker` with a 10-second `ThreadPoolExecutor` timeout to prevent runaway SymPy simplifications, and added a user-facing "Cancel Computation" button (`btn_cancel`) in `VectorMachineWindow` to safely abort pending calculations and prevent UI lockouts.
+- **Computation Timeout & Cancellation**: Enhanced `ComputeWorker` with a 10-second `ThreadPoolExecutor` timeout to prevent runaway SymPy simplifications, and added a user-facing "Cancel Computation" button (`btn_cancel`) in `VectorMachineWindow` to safely abort pending calculations and prevent UI lockouts. *(Later replaced: a thread can't stop SymPy, so the work now runs in a killable child process; see Bug Audit Fixes below.)*
 - **Worker Thread Lifecycle & Shiboken Safety**: Fixed `RuntimeError: libshiboken: Internal C++ object already deleted` by clearing thread references on finish, disconnecting stale wrappers, and guarding worker checks (`isRunning()`, `cancel()`) with `shiboken6.isValid()`.
 - **Repository Hygiene**: Cleaned up the repository by removing the redundant `.gitignore.txt` and updating `.gitignore` with comprehensive rules for temporary, log, and analysis artifacts.
 
@@ -65,11 +65,11 @@ With Milestones 1, 2, and 3 completed, the application now supports input, calcu
 
 ## Bug Audit Fixes
 
-A full audit (`bugreport.md`) found 18 issues; all are fixed except the Matplotlib fallback renderer noted under item 17.
+A full audit (`bugreport.md`) found 18 issues, and all of them are fixed.
 
 - **Parser**: `^` means power (it was XOR), scientific notation is accepted, numbers that would exceed 1000 digits are rejected before SymPy evaluates them (`9**9**9` used to freeze the app), and lazy initialisation is thread-safe.
 - **Computation**: SymPy runs in a child process that is killed on timeout or cancel, so runaway simplifications no longer burn a core or delay exit; engine crashes surface as errors; a cancelled worker's late signal can't clobber the next computation.
-- **Visualization**: fields with `P = 0` plot; factorials plot; arrow lengths are relative to the grid and robust to poles; 2D mode is in-plane; at most one evaluation runs at a time; keyboard slider changes redraw; a failed 3D start shows its error and can be retried.
+- **Visualization**: fields with `P = 0` plot; factorials plot; arrow lengths are relative to the grid and robust to poles; 2D mode is in-plane; at most one evaluation runs at a time; keyboard slider changes redraw; a failed 3D start shows its error and can be retried, and on machines without OpenGL a Matplotlib view (2D or 3D quiver) takes over automatically, with the same scaling, theme and PNG export.
 - **Sessions & export**: loaded sessions recompute their results instead of trusting saved strings, sessions carry a schema version, and the results panel (and therefore PDF/PNG export) shows both divergence and curl.
 - **UI**: colours come from the theme (all text meets WCAG AA), empty fields aren't shown as errors, and the window stops its workers on close.
 - **CI & repo**: CI is green on Ubuntu 24.04 and Windows 2025 with Python 3.12 and 3.14; the VTK spike and the legacy `test_debug.py` were removed; `requirements.txt` documents what pulls in each pinned package.

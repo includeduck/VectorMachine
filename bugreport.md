@@ -3,7 +3,7 @@
 **Date:** 2026-10-17
 **Branch analysed:** `Fix` @ `3fd02df`
 **Scope:** All of `src/`, `tests/`, `test_debug.py`, `.github/workflows/ci.yml`, requirements and docs.
-**Status:** All 18 items are fixed. Items 1–5 were merged in PR #1, 6–8 in #2, 9–12 in #3, and 13–18 are in the follow-up cleanup PR. The one open piece is a Matplotlib fallback renderer (item 17). Each item below keeps its original findings, followed by a **Resolution**.
+**Status:** All 18 items are fixed. Items 1–5 were merged in PR #1, 6–8 in #2, 9–12 in #3, 13–18 in #4, and the Matplotlib fallback renderer that completes item 17 in the follow-up PR. Each item below keeps its original findings, followed by a **Resolution**.
 
 ## How this was checked
 
@@ -34,7 +34,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 14 | Low | Theming | Hard-coded colours ignore the dark theme | **Fixed** |
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | **Fixed** |
 | 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | **Fixed** |
-| 17 | Low | Visualization | A VTK init failure is permanent for the whole session | **Fixed** (retry; no fallback renderer) |
+| 17 | Low | Visualization | A VTK init failure is permanent for the whole session | **Fixed** |
 | 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | **Fixed** |
 
 ---
@@ -246,7 +246,9 @@ The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z`
 
 `_vtk_initialization_failed` is set once and is never retried. There is no fallback renderer such as Matplotlib quiver, even though Matplotlib is already in `requirements.txt`. This was already listed in `Weakness.md` and is still open.
 
-**Resolution:** a failed start now shows the error with a hint (OpenGL unavailable: drivers, remote desktop, VM) and a **Retry 3D view** button that clears the failure and tries again, replotting on success. This also fixed a related bug: the placeholder used to be hidden *before* the viewport was created, so the failure message was set on an invisible label and the tab just looked blank. Any partly created viewport is removed. **Not done:** a Matplotlib fallback renderer for machines with no OpenGL at all.
+**Resolution:** a failed start now shows the error with a hint (OpenGL unavailable: drivers, remote desktop, VM) and a **Retry 3D view** button that clears the failure and tries again, replotting on success. This also fixed a related bug: the placeholder used to be hidden *before* the viewport was created, so the failure message was set on an invisible label and the tab just looked blank. Any partly created viewport is removed.
+
+**Fallback renderer (follow-up PR):** when VTK can't start, the tab now switches automatically to a Matplotlib view (`src/ui/mpl_fallback.py`): a 2D quiver in 2D mode, or an `mplot3d` quiver in 3D mode. It uses the same worker output, arrow scaling, theme colours and PNG export. A successful retry swaps the hardware renderer back in. If Matplotlib can't load either, the error message stays as before.
 
 ## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low — **Fixed**
 
