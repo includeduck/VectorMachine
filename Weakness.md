@@ -203,8 +203,8 @@ To transition VectorMachine from a student prototype to a resilient, production-
    - Extract `SessionController` (session save/load logic), `ExportController` (file export dispatching), and `ThemeManager` into dedicated classes, leaving `VectorMachineWindow` responsible solely for top-level widget docking and layout.
 2. **Make `src/core/export.py` Headless:**
    - Implement PDF generation using headless engines (such as `reportlab` or HTML-to-PDF utilities) or move Qt-dependent printing into `src/ui/export_dialog.py`.
-3. **Purge Repository Debris:**
-   - Remove `src/test_pv.py`, delete duplicate `.gitignore.txt`, and relocate `test_debug.py` to `tests/test_core.py`.
+3. **Purge Repository Debris:** `[RESOLVED]`
+   - Removed `src/test_pv.py` and the duplicate `.gitignore.txt`. `test_debug.py` was retired: its checks were already covered by `tests/`, and the one unique assertion (a stale compute leaves the UI unlocked and VTK uninitialised) moved into `tests/test_ui.py`.
 
 ### Phase 3: Educational Value & Math Enhancements
 1. **True Pedagogical Derivations:**

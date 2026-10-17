@@ -304,12 +304,21 @@ class TestVectorMachineWindow:
 
         # Edit input while compute is running
         window.input_panel.p_input.setText("x**2")
-        for _ in range(50):
+        # Wait for the stale computation to come back rather than a fixed
+        # time: a cold compute engine takes about a second to start.
+        deadline = time.monotonic() + 20
+        while (window._compute_in_progress or window.input_panel.validation_timer.isActive()) \
+                and time.monotonic() < deadline:
             qapp.processEvents()
             time.sleep(0.01)
+        qapp.processEvents()
 
-        # Stale results must be discarded
+        # Stale results must be discarded, the UI unlocked for the new field,
+        # and VTK must not have been started by an off-tab edit.
         assert window.last_div_steps is None
+        assert window.input_panel.is_valid()
+        assert window.btn_divergence.isEnabled()
+        assert not window.visualization_panel._vtk_initialized
         window.close()
         window.deleteLater()
         qapp.processEvents()
