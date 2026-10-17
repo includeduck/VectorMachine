@@ -21,7 +21,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 2 | High | Parser / UI | Large integer literals (`9**9**9`) freeze the GUI thread for good | **Fixed** |
 | 3 | High | Visualization | Fields with `P = 0` never render | **Fixed** |
 | 4 | High | Compute UI | A stale worker signal clobbers the active computation, and its result is dropped | **Fixed** |
-| 5 | High | CI | Every Linux job and every Python 3.11 job fails, and the Windows install step hides pip errors | **Fixed** (pending a CI run) |
+| 5 | High | CI | Every Linux job and every Python 3.11 job fails, and the Windows install step hides pip errors | **Fixed** |
 | 6 | Medium | Compute worker | Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit | Confirmed |
 | 7 | Medium | Results / Export | The panel shows only the latest result, so PDF and TXT/MD exports disagree | Confirmed |
 | 8 | Medium | Visualization | Changing the scale slider with keyboard, wheel or a groove click never redraws | Confirmed |
@@ -105,7 +105,7 @@ B's curl result shown: False
 
 **Fix:** pass the worker to the slot, for example `worker.finished_ok.connect(lambda t, r, w=worker: self._on_compute_finished(w, t, r))`, and return early when `w is not self._compute_worker`. `_cancel_compute_worker` already sets `_compute_worker = None`, so this check is enough. Apply the same pattern to `VisualizationPanel`, which is already protected by `revision_id`.
 
-## 5. Every Linux job and every Python 3.11 job fails, and the Windows install step hides pip errors — High — **Fixed** (pending a CI run)
+## 5. Every Linux job and every Python 3.11 job fails, and the Windows install step hides pip errors — High — **Fixed**
 
 **Where:** [ci.yml:45](.github/workflows/ci.yml:45), [ci.yml:66](.github/workflows/ci.yml:66), [ci.yml:72-76](.github/workflows/ci.yml:72), [requirements.txt](requirements.txt)
 
@@ -119,7 +119,7 @@ Only Windows / Python 3.12 is green.
 
 **Fix:** remove `libgl1-mesa-glx` (keep `libgl1`, `libegl1`, `libglx-mesa0`, `xvfb`). Either drop 3.11 from the matrix or relax the pins (for example `numpy>=2.2,<3`). Add `shell: bash` (or `$ErrorActionPreference='Stop'` with per-line checks) to the install step. Also update the README, which still says "Python 3.9+".
 
-**Resolution:** the workflow now pins `ubuntu-24.04` / `windows-2025`, installs `libgl1` instead of the removed `libgl1-mesa-glx`, tests Python 3.12 and 3.14 (the pins need ≥ 3.12), runs every test step under `bash` so a failing command fails its step, and bumps the official actions to `v7` (Node 24). The README now says Python 3.12+.
+**Resolution:** the workflow now pins `ubuntu-24.04` / `windows-2025`, installs `libgl1` instead of the removed `libgl1-mesa-glx`, tests Python 3.12 and 3.14 (the pins need ≥ 3.12), runs every test step under `bash` so a failing command fails its step, and bumps the official actions to `v7` (Node 24). The README now says Python 3.12+. Verified by run `39053140611`: lint and all four test jobs passed, each running all 52 tests.
 
 ## 6. Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit — Medium
 
