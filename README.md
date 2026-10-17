@@ -29,7 +29,7 @@ Whether you're calculating divergence, evaluating curl, or trying to visualize h
 ## 🚀 Quickstart
 
 ### Prerequisites
-Make sure you have Python 3.9+ installed.
+Make sure you have Python 3.12+ installed (the pinned NumPy release requires it).
 
 ### Installation
 Clone the repository and install the requirements:
