@@ -54,6 +54,8 @@ class VisualizationPanel(QWidget):
         self.r_expr = None
         self.plotter = None
         self.vtk_widget = None
+        # Software-rendered stand-in used when VTK/OpenGL cannot start.
+        self._fallback = None
         self._vtk_initialized = False
         self._vtk_initialization_failed = False
         self._plot_placeholder = None
@@ -150,8 +152,18 @@ class VisualizationPanel(QWidget):
         self.scale_slider.sliderReleased.connect(lambda: self.schedule_plot_update("scale"))
 
     def export_screenshot(self, file_path: str) -> bool:
-        """Export 3D viewport screenshot directly via PyVista/VTK, or fallback to QWidget.grab."""
-        if self._vtk_initialized and self.plotter:
+        """Export the plot: PyVista's native screenshot, the fallback figure, or QWidget.grab."""
+        if self._fallback is not None:
+            try:
+                return self._fallback.save_png(file_path)
+            except Exception as e:
+                debug_log(
+                    "visualization_panel.py:export_screenshot",
+                    "fallback figure export failed, falling back to grab",
+                    {"error": str(e)},
+                    "E",
+                )
+        elif self._vtk_initialized and self.plotter:
             try:
                 self.plotter.screenshot(file_path)
                 return True
@@ -172,6 +184,14 @@ class VisualizationPanel(QWidget):
             self.plotter.set_background(palette["plot_background"])
             self._add_axes()
             self.plotter.render()
+        if self._fallback is not None:
+            self._fallback.apply_palette(palette)
+
+    def _has_renderer(self):
+        return bool(self._vtk_initialized and self.plotter) or self._fallback is not None
+
+    def is_using_fallback(self):
+        return self._fallback is not None
 
     def _add_axes(self):
         # ``add_axes`` replaces any existing axes widget; ``show_axes`` (used
@@ -198,6 +218,7 @@ class VisualizationPanel(QWidget):
             # failure's message landed on an invisible label.
             self._plot_placeholder.hide()
             self._retry_button.hide()
+            self._remove_fallback()
 
             debug_log(
                 "visualization_panel.py:ensure_vtk_initialized",
@@ -213,15 +234,49 @@ class VisualizationPanel(QWidget):
                 self.vtk_widget = None
             self.plotter = None
             self._vtk_initialization_failed = True
-            self._plot_placeholder.setText(
-                f"The 3D view could not start: {e}\n\n"
-                "This usually means OpenGL is unavailable (missing graphics "
-                "drivers, a remote desktop or a virtual machine). Results and "
-                "exports still work."
-            )
+            if self._start_fallback():
+                self._plot_placeholder.setText(
+                    f"Hardware 3D is unavailable ({e}), so a basic Matplotlib "
+                    "view is shown instead. It redraws more slowly and can't "
+                    "be rotated with the mouse."
+                )
+            else:
+                self._plot_placeholder.setText(
+                    f"The 3D view could not start: {e}\n\n"
+                    "This usually means OpenGL is unavailable (missing graphics "
+                    "drivers, a remote desktop or a virtual machine). Results and "
+                    "exports still work."
+                )
             self._plot_placeholder.show()
             self._retry_button.show()
             return False
+
+    def _start_fallback(self):
+        if self._fallback is not None:
+            return True
+        try:
+            from src.ui.mpl_fallback import MatplotlibFieldView
+
+            self._fallback = MatplotlibFieldView(self)
+            self._fallback.apply_palette(self._palette)
+        except Exception as e:
+            debug_log(
+                "visualization_panel.py:_start_fallback",
+                "Matplotlib fallback unavailable",
+                {"error": str(e)},
+                "F",
+            )
+            self._fallback = None
+            return False
+        self.layout().addWidget(self._fallback, 1)
+        return True
+
+    def _remove_fallback(self):
+        if self._fallback is None:
+            return
+        self.layout().removeWidget(self._fallback)
+        self._fallback.deleteLater()
+        self._fallback = None
 
     def retry_vtk_initialization(self):
         """Clear a previous failure and try to start the 3D view again."""
@@ -297,6 +352,8 @@ class VisualizationPanel(QWidget):
             self.plotter.clear()
             self.plotter.show_axes()
             self.plotter.render()
+        if self._fallback is not None:
+            self._fallback.clear()
         
     def schedule_plot_update(self, source="unknown"):
         self._schedule_count += 1
@@ -326,7 +383,7 @@ class VisualizationPanel(QWidget):
         # The visualization is intentionally lazy.  Input validation happens
         # on the Results tab too, so it must never spin up VTK in the
         # background merely because text was edited.
-        if not self._vtk_initialized or not self.plotter:
+        if not self._has_renderer():
             return
 
         if self._running_worker is not None and self._is_running(self._running_worker):
@@ -404,6 +461,10 @@ class VisualizationPanel(QWidget):
         if self._status_label:
             self._status_label.setText("")
 
+        if self._fallback is not None:
+            self._draw_fallback(points, vectors, magnitudes, is_2d, scale_factor)
+            return
+
         if not self._vtk_initialized or not self.plotter:
             return
 
@@ -459,6 +520,22 @@ class VisualizationPanel(QWidget):
                 "visualization_panel.py:_on_visualization_ready",
                 "plot render error",
                 {"revision": revision_id, "error": str(e)},
+                "E",
+            )
+            QMessageBox.warning(self, "Visualization Error", str(e))
+
+    def _draw_fallback(self, points, vectors, magnitudes, is_2d, scale_factor):
+        try:
+            if len(points) == 0:
+                self._fallback.show_message("No finite real vectors in the selected domain.")
+                return
+            lengths = arrow_lengths(magnitudes, self._arrow_spacing, scale_factor)
+            self._fallback.plot(points, vectors, magnitudes, lengths, is_2d)
+        except Exception as e:
+            debug_log(
+                "visualization_panel.py:_draw_fallback",
+                "fallback render error",
+                {"error": str(e)},
                 "E",
             )
             QMessageBox.warning(self, "Visualization Error", str(e))
