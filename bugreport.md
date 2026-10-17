@@ -3,6 +3,7 @@
 **Date:** 2026-10-17
 **Branch analysed:** `Fix` @ `3fd02df`
 **Scope:** All of `src/`, `tests/`, `test_debug.py`, `.github/workflows/ci.yml`, requirements and docs.
+**Status:** All 18 items are fixed. Items 1–5 were merged in PR #1, 6–8 in #2, 9–12 in #3, and 13–18 are in the follow-up cleanup PR. The one open piece is a Matplotlib fallback renderer (item 17). Each item below keeps its original findings, followed by a **Resolution**.
 
 ## How this was checked
 
@@ -34,7 +35,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | **Fixed** |
 | 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | **Fixed** |
 | 17 | Low | Visualization | A VTK init failure is permanent for the whole session | **Fixed** (retry; no fallback renderer) |
-| 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | Confirmed |
+| 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | **Fixed** |
 
 ---
 
@@ -247,7 +248,7 @@ The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z`
 
 **Resolution:** a failed start now shows the error with a hint (OpenGL unavailable: drivers, remote desktop, VM) and a **Retry 3D view** button that clears the failure and tries again, replotting on success. This also fixed a related bug: the placeholder used to be hidden *before* the viewport was created, so the failure message was set on an invisible label and the tab just looked blank. Any partly created viewport is removed. **Not done:** a Matplotlib fallback renderer for machines with no OpenGL at all.
 
-## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low
+## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low — **Fixed**
 
 - Twelve tracked `desktop.ini` files. Their deletion is the uncommitted work on `Fix` (see below).
 - Seven tracked `__pycache__/*.cpython-314.pyc` files, although `.gitignore` already excludes `*.pyc`.
@@ -256,6 +257,15 @@ The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z`
 - `requirements.txt` is a full `pip freeze` that includes packages the app doesn't use (`cyclopts`, `rich`, `rich-rst`, `requests`, `markdown-it-py`, …).
 - README: the clone URL is a placeholder (`yourusername`), and the "Step-by-Step Derivations" claim is overstated (Weakness §3.4).
 - `doc/Progress.md` says repository hygiene is done, but the items above are still open.
+
+**Resolution:**
+
+- `desktop.ini` and the `.pyc` files were untracked earlier, in commit `da1ec50`.
+- `src/test_pv.py` is deleted.
+- `test_debug.py` is retired: everything it checked was already in `tests/`, and its one unique assertion moved there. CI no longer runs it.
+- **Correction to this report:** `requirements.txt` carries no unused packages. Every entry the report listed is a transitive dependency; for example, `cyclopts` comes in via `pyvista`, and `requests` via `pooch` and then `pyvista`. The file is kept as a full lock, now with the direct dependencies marked and each other pin naming what pulls it in.
+- The README now has the real clone URL, describes the worked steps accurately, and documents the input syntax.
+- `doc/Progress.md` summarises the audit fixes.
 
 ---
 
