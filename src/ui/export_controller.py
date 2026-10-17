@@ -31,7 +31,7 @@ class ExportController:
         elif format_type == "md":
             export_markdown(file_path, p, q, r, div_steps, curl_steps)
         elif format_type == "pdf":
-            export_pdf(file_path, self._results_panel.export_html())
+            export_pdf(file_path, self._results_panel.export_html(), field=(p, q, r))
         elif format_type == "png":
             if self._is_visualization_active():
                 if not self._visualization_panel.export_screenshot(file_path):

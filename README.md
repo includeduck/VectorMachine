@@ -1,6 +1,8 @@
 <div align="center">
-  <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Nabla_symbol.svg" alt="VectorMachine Logo" width="120" height="120">
-  <h1>VectorMachine</h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme-logo-dark.png">
+    <img src="assets/readme-logo-light.png" alt="VectorMachine" width="280">
+  </picture>
   <p><strong>A Desktop Application for Symbolic Vector Calculus and 3D Field Visualization</strong></p>
   <p>
     <a href="https://github.com/includeduck/VectorMachine/actions/workflows/ci.yml"><img src="https://github.com/includeduck/VectorMachine/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline"></a>
@@ -112,11 +114,27 @@ VectorMachine is designed around three core layers:
      - `export_controller.py`: export format dispatch.
      - `theme_manager.py`: the theme menu, persistence and applying palettes.
    - The input, results and visualization panels.
-   - `pdf_export.py` (Qt PDF rendering) and `settings.py` (persisted preferences via `QSettings`).
+   - `pdf_export.py` (Qt PDF rendering, with a branded report header) and `settings.py` (persisted preferences via `QSettings`).
+   - `branding.py` (app name, version, links and icon) and `about_dialog.py` (Help → About).
    - Background workers for computation and field evaluation.
    - `themes.py`, which holds the stylesheets and the WCAG-AA colour palettes.
    - `mpl_fallback.py`, the Matplotlib renderer used when OpenGL is unavailable, and `vtk_probe.py`, the crash-isolated check that decides whether VTK may start.
 3. **Documentation (`doc/`)**: internal specs, milestone plans and progress tracking. `bugreport.md` records the bug audit and how each item was resolved, and `Weakness.md` is the architectural critique with its current status.
+
+### Logo and icons
+`assets/logo-master.png` is the source logo. Every derived image is generated from it by `tools/build_brand_assets.py`:
+- the window and taskbar icon, and `app.ico` for a packaged build, in `src/ui/assets/`;
+- the About-dialog and PDF tile;
+- the README variants for light and dark themes;
+- `assets/social-preview.png`, to upload under the repository's **Settings → Social preview**.
+
+After changing the master, rerun the script:
+
+```bash
+python tools/build_brand_assets.py
+```
+
+The app version is defined once, in `src/version.py`.
 
 ---
 
