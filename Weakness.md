@@ -15,8 +15,8 @@ Since this critique was written, the bug audit (`bugreport.md`, PRs #1 to #4) an
 | 1 | Synchronous 3D evaluation | **Resolved** | `VisualizationWorker` evaluates off the GUI thread, and at most one evaluation runs at a time. |
 | 1 | Irrecoverable VTK initialisation | **Resolved** | The failure is shown with its reason and a **Retry 3D view** button, and a Matplotlib renderer (`src/ui/mpl_fallback.py`) takes over. |
 | 1 | Blank PNG export | **Resolved** | Native `plotter.screenshot()`, or the fallback figure's `savefig`. |
-| 2.1 | God Object (`VectorMachineWindow`) | **Open** | The window still owns sessions, export, theming and compute orchestration. |
-| 2.2 | Qt in `src/core/export.py` | **Open** | PDF output still uses `QTextDocument`/`QPdfWriter`. |
+| 2.1 | God Object (`VectorMachineWindow`) | **Resolved** | Compute orchestration, sessions, export and theming moved into `ComputeController`, `SessionController`, `ExportController` and `ThemeManager`. The window (446 → 264 lines) keeps the layout, menus, dialogs and wiring. |
+| 2.2 | Qt in `src/core/export.py` | **Resolved** | PDF rendering moved to `src/ui/pdf_export.py` and `QSettings` preferences to `src/ui/settings.py`. A test asserts that importing and using `src/core` loads no PySide6. |
 | 2.3 | Repository debris | **Resolved** | Removed `src/test_pv.py`, `.gitignore.txt`, `desktop.ini` and the tracked `.pyc` files, and retired `test_debug.py`. |
 | 3.1 | SymPy denial of service | **Resolved** | SymPy runs in a killable child process, and numbers over 1000 digits are rejected before evaluation. |
 | 3.2 | Uncancellable threads | **Resolved** | Timeout and Cancel kill the child process; crashes surface as errors. |
@@ -76,7 +76,7 @@ If there is a single point of failure capable of catastrophically destabilizing 
 
 Topological analysis of the codebase knowledge graph revealed critical structural anomalies:
 
-### 2.1. The Monolithic God Object (`VectorMachineWindow`) `[OPEN]`
+### 2.1. The Monolithic God Object (`VectorMachineWindow`) `[RESOLVED]`
 - **Topological Metric:** Betweenness Centrality of **0.149**, degree **28** (highest in the codebase by far).
 - `VectorMachineWindow` acts as a central bottleneck bridging almost every independent subsystem:
   - Layout & Widget Management (`InputPanel`, `ResultsPanel`, `VisualizationPanel`)
@@ -99,7 +99,7 @@ Topological analysis of the codebase knowledge graph revealed critical structura
  VizPanel)    session)        Worker)     pdf, png)      qss)
 ```
 
-### 2.2. Architectural Layer Boundary Leaks (`src/core/export.py`) `[OPEN]`
+### 2.2. Architectural Layer Boundary Leaks (`src/core/export.py`) `[RESOLVED]`
 - The project documentation (`ImplementationPlan.md`) claims a clean four-layer architecture:
   1. UI Layer (`src/ui/`)
   2. Computation Layer (`src/core/computation.py`)
@@ -234,10 +234,10 @@ To transition VectorMachine from a student prototype to a resilient, production-
    - *Superseded:* the thread-based timeout couldn't stop SymPy, and exit waited for it. The work now runs in a killable child process (`src/core/compute_process.py`).
 
 ### Phase 2: Architectural Decoupling & Cleanliness
-1. **Break Down the God Object:**
-   - Extract `SessionController` (session save/load logic), `ExportController` (file export dispatching), and `ThemeManager` into dedicated classes, leaving `VectorMachineWindow` responsible solely for top-level widget docking and layout.
-2. **Make `src/core/export.py` Headless:**
-   - Implement PDF generation using headless engines (such as `reportlab` or HTML-to-PDF utilities) or move Qt-dependent printing into `src/ui/export_dialog.py`.
+1. **Break Down the God Object:** `[RESOLVED]`
+   - Extracted `SessionController` (session save/load logic), `ExportController` (file export dispatching) and `ThemeManager`, plus a `ComputeController` for the worker, revision and queue state that also lived on the window. Each has unit tests; the compute controller is tested with a fake worker, so stale-result and queue handling are tested deterministically.
+2. **Make `src/core/export.py` Headless:** `[RESOLVED]`
+   - Qt-dependent PDF printing moved to `src/ui/pdf_export.py`, and the `QSettings` wrapper to `src/ui/settings.py`.
 3. **Purge Repository Debris:** `[RESOLVED]`
    - Removed `src/test_pv.py` and the duplicate `.gitignore.txt`. `test_debug.py` was retired: its checks were already covered by `tests/`, and the one unique assertion (a stale compute leaves the UI unlocked and VTK uninitialised) moved into `tests/test_ui.py`.
 

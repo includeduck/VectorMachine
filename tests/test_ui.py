@@ -220,12 +220,12 @@ class TestVectorMachineWindow:
         window.load_example("x", "y", "z")
         window.on_compute_divergence()
 
-        assert window._compute_in_progress
+        assert window.compute.is_busy
         assert window.btn_cancel.isEnabled()
         assert not window.btn_divergence.isEnabled()
 
         window.on_cancel_compute()
-        assert not window._compute_in_progress
+        assert not window.compute.is_busy
         assert not window.btn_cancel.isEnabled()
         assert window.btn_divergence.isEnabled()
 
@@ -237,16 +237,16 @@ class TestVectorMachineWindow:
         window = VectorMachineWindow()
         window.load_example("x", "y", "z")
         window.on_compute_divergence()
-        stale_worker = window._compute_worker
+        stale_worker = window.compute.worker
         window.on_cancel_compute()
         window.on_compute_divergence()
-        active_worker = window._compute_worker
+        active_worker = window.compute.worker
         assert active_worker is not stale_worker
 
         # The cancelled worker's result arrives after its replacement started.
         stale_worker.finished_ok.emit("divergence", {"stale": True})
-        assert window._compute_in_progress
-        assert window._compute_worker is active_worker
+        assert window.compute.is_busy
+        assert window.compute.worker is active_worker
         assert window.last_div_steps is None
 
         for _ in range(300):
@@ -265,8 +265,7 @@ class TestVectorMachineWindow:
         window.load_example("x*y", "y*z", "z*x")
         P, Q, R = window.input_panel.get_expressions()
         for compute_type, func in (("divergence", compute_divergence), ("curl", compute_curl)):
-            window._active_compute_revision = window._input_revision
-            window._on_compute_finished(compute_type, func(P, Q, R))
+            window.compute.resultReady.emit(compute_type, func(P, Q, R))
 
         # PDF/PNG export captures this panel, so it must match TXT/MD output.
         text = window.results_panel.results_text.toPlainText()
@@ -282,7 +281,7 @@ class TestVectorMachineWindow:
         window = VectorMachineWindow()
         window.load_example("x", "y", "z")
         window.on_compute_divergence()
-        worker = window._compute_worker
+        worker = window.compute.worker
         deadline = time.monotonic() + 15
         while process._busy_job is not worker and time.monotonic() < deadline:
             time.sleep(0.02)
@@ -307,7 +306,7 @@ class TestVectorMachineWindow:
         # Wait for the stale computation to come back rather than a fixed
         # time: a cold compute engine takes about a second to start.
         deadline = time.monotonic() + 20
-        while (window._compute_in_progress or window.input_panel.validation_timer.isActive()) \
+        while (window.compute.is_busy or window.input_panel.validation_timer.isActive()) \
                 and time.monotonic() < deadline:
             qapp.processEvents()
             time.sleep(0.01)
@@ -342,7 +341,7 @@ class TestVectorMachineWindow:
         window = VectorMachineWindow()
         for theme in ("dark", "light", "system"):
             window.apply_theme(theme)
-            assert window._current_theme == theme
+            assert window.theme.current == theme
         window.close()
         window.deleteLater()
         qapp.processEvents()

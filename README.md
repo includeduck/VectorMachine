@@ -99,14 +99,20 @@ Remote desktops, virtual machines and missing graphics drivers often can't provi
 ## 🏗️ Architecture
 
 VectorMachine is designed around three core layers:
-1. **Core (`src/core/`)**: headless logic.
+1. **Core (`src/core/`)**: headless logic with no Qt imports (a test enforces this).
    - `computation.py`: sandboxed parsing (whitelisted names, a 1000-digit limit on exact numbers), divergence, curl and NumPy field evaluation.
    - `compute_process.py`: the killable SymPy child process.
    - `session.py`: versioned JSON sessions.
-   - `export.py`: TXT, Markdown and PDF output.
-   - `settings.py`: persisted preferences.
+   - `export.py`: TXT and Markdown output.
 2. **User Interface (`src/ui/`)**: PySide6 components.
-   - The main window and the input, results and visualization panels.
+   - `app_window.py`: the main window, which builds the layout and menus, owns the dialogs, and wires the parts together.
+   - Controllers that hold the logic the window delegates to:
+     - `compute_controller.py`: the running computation, stale-result filtering and queued recomputes.
+     - `session_controller.py`: saving, and opening with results recomputed.
+     - `export_controller.py`: export format dispatch.
+     - `theme_manager.py`: the theme menu, persistence and applying palettes.
+   - The input, results and visualization panels.
+   - `pdf_export.py` (Qt PDF rendering) and `settings.py` (persisted preferences via `QSettings`).
    - Background workers for computation and field evaluation.
    - `themes.py`, which holds the stylesheets and the WCAG-AA colour palettes.
    - `mpl_fallback.py`, the Matplotlib renderer used when OpenGL is unavailable.

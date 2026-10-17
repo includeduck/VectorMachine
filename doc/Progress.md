@@ -74,3 +74,9 @@ A full audit (`bugreport.md`) found 18 issues, and all of them are fixed.
 - **UI**: colours come from the theme (all text meets WCAG AA), empty fields aren't shown as errors, and the window stops its workers on close.
 - **CI & repo**: CI is green on Ubuntu 24.04 and Windows 2025 with Python 3.12 and 3.14; the VTK spike and the legacy `test_debug.py` were removed; `requirements.txt` documents what pulls in each pinned package.
 
+
+## Architecture Refactor
+
+- **`VectorMachineWindow` split up** (`Weakness.md` §2.1): compute orchestration moved to `ComputeController`, sessions to `SessionController`, export dispatch to `ExportController` and theming to `ThemeManager`. The window shrank from 446 to 264 lines and now builds the layout and menus, owns the dialogs and wires the parts.
+- **Headless core** (§2.2): Qt PDF rendering moved to `src/ui/pdf_export.py` and the `QSettings` wrapper to `src/ui/settings.py`, so `src/core` imports no Qt; a test enforces this.
+- 25 new unit tests cover the extracted classes, including deterministic tests of the compute controller with a fake worker.

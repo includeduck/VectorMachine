@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from src.core.computation import compute_curl, compute_divergence
-from src.core.export import export_markdown, export_pdf, export_text
+from src.core.export import export_markdown, export_text
+from src.ui.pdf_export import export_pdf
 
 
 class TestExportSubsystem:

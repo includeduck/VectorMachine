@@ -140,7 +140,7 @@ class TestComputeWorkerStopsWork:
 class TestWindowRecoversFromEngineFailures:
     def _wait_idle(self, qapp, window, timeout=20):
         deadline = time.monotonic() + timeout
-        while window._compute_in_progress and time.monotonic() < deadline:
+        while window.compute.is_busy and time.monotonic() < deadline:
             qapp.processEvents()
             time.sleep(0.01)
 
@@ -156,7 +156,7 @@ class TestWindowRecoversFromEngineFailures:
         window.on_compute_divergence()
         self._wait_idle(qapp, window)
 
-        assert not window._compute_in_progress
+        assert not window.compute.is_busy
         assert window.btn_divergence.isEnabled()
         assert errors and "stopped unexpectedly" in errors[0]
         window.close()
@@ -172,7 +172,7 @@ class TestWindowRecoversFromEngineFailures:
         window.on_compute_divergence()
         self._wait_idle(qapp, window, timeout=5)
 
-        assert not window._compute_in_progress
+        assert not window.compute.is_busy
         assert window.btn_divergence.isEnabled()
         window.close()
         window.deleteLater()
