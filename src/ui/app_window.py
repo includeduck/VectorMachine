@@ -252,7 +252,15 @@ class VectorMachineWindow(QMainWindow):
 
     def _on_compute_worker_finished(self, worker):
         if self._compute_worker is worker:
+            # Still current, so it exited without reporting a result or an
+            # error (the result/error slots clear it).  Never leave the UI
+            # stuck in "computing".
             self._compute_worker = None
+            if self._compute_in_progress:
+                self._compute_in_progress = False
+                self._active_compute_revision = None
+                self._queued_computes = []
+                self._set_compute_enabled(True)
 
     def _start_compute(self, compute_type):
         P, Q, R = self.input_panel.get_expressions()

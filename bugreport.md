@@ -135,6 +135,8 @@ The window also has no `closeEvent` that cancels or waits for `ComputeWorker` an
 
 **Resolution:** SymPy now runs in a long-lived child process (`src/core/compute_process.py`), which is killed on timeout or cancel and replaced on the next request. The app pre-spawns it at startup, so the first computation starts warm. `VectorMachineWindow.closeEvent` cancels compute and visualization workers and waits for them, with a bounded wait. Regression tests cover timeout, cancel, closing the window during a computation, and exit not being delayed.
 
+**Follow-up:** the first version reported a child that died on its own (rather than being cancelled) as a cancel. The worker then emitted nothing, and the window stayed stuck at "computing". Crashes now come back as an error, and a start-up failure explains the `if __name__ == "__main__":` requirement for embedding scripts. The window also resets if a worker ever exits without reporting.
+
 ## 7. The panel shows only the latest result, so PDF and TXT/MD exports disagree — Medium — **Fixed**
 
 **Where:** [results_panel.py:385-389](src/ui/results_panel.py:385), [app_window.py:369-374](src/ui/app_window.py:369)
