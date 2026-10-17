@@ -64,6 +64,11 @@ class VisualizationWorker(QThread):
             if self._cancelled:
                 return
 
+            if self.is_2d:
+                # A 2D quiver lives in the z = 0 plane: drop the out-of-plane
+                # component so arrows and magnitudes are in-plane only.
+                w = np.zeros(x_grid.shape)
+
             points = np.c_[x_grid.ravel(), y_grid.ravel(), z_grid.ravel()]
             vectors = np.c_[u.ravel(), v.ravel(), w.ravel()]
 

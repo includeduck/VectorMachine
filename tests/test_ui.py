@@ -323,3 +323,146 @@ class TestVectorMachineWindow:
         window.close()
         window.deleteLater()
         qapp.processEvents()
+
+
+class TestArrowScaling:
+    def test_arrows_fit_their_grid_cell(self):
+        import numpy as np
+
+        from src.ui.visualization_panel import arrow_lengths
+
+        # |F| = x**2 on a +-50 domain used to give arrows ~2500 units long.
+        magnitudes = np.linspace(0, 2500, 50)
+        lengths = arrow_lengths(magnitudes, spacing=2.0, scale_factor=1.0)
+        assert lengths.max() == 2.0
+        assert lengths.min() == 0.0
+
+    def test_outliers_do_not_shrink_other_arrows(self):
+        import numpy as np
+
+        from src.ui.visualization_panel import arrow_lengths
+
+        magnitudes = np.array([1.0] * 99 + [1e6])  # one sample next to a pole
+        lengths = arrow_lengths(magnitudes, spacing=0.5, scale_factor=2.0)
+        assert np.allclose(lengths, 1.0)
+
+    def test_all_zero_field(self):
+        import numpy as np
+
+        from src.ui.visualization_panel import arrow_lengths
+
+        assert (arrow_lengths(np.zeros(5), spacing=1.0, scale_factor=1.0) == 0).all()
+
+
+class TestVisualizationWorkerSerialisation:
+    def test_only_one_evaluation_runs_at_a_time(self, qapp, monkeypatch):
+        import threading
+
+        import src.ui.visualization_worker as visualization_worker
+
+        real_evaluate = visualization_worker.evaluate_field
+        lock = threading.Lock()
+        state = {"active": 0, "peak": 0, "domains": []}
+
+        def slow_evaluate(p, q, r, x_grid, y_grid, z_grid):
+            with lock:
+                state["active"] += 1
+                state["peak"] = max(state["peak"], state["active"])
+                state["domains"].append(float(x_grid.max()))
+            time.sleep(0.4)
+            try:
+                return real_evaluate(p, q, r, x_grid, y_grid, z_grid)
+            finally:
+                with lock:
+                    state["active"] -= 1
+
+        monkeypatch.setattr(visualization_worker, "evaluate_field", slow_evaluate)
+        p, q, r = (parse_expression(text)[0] for text in ("-y", "x", "0"))
+        panel = VisualizationPanel()
+        panel._vtk_initialized = True
+        panel.plotter = MagicMock()
+        panel.p_expr, panel.q_expr, panel.r_expr = p, q, r
+
+        panel._do_update_plot()
+        deadline = time.monotonic() + 10
+        while state["active"] == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert state["active"] == 1
+        for domain in (6, 7, 8):  # rapid setting changes mid-evaluation
+            panel.domain_spin.blockSignals(True)
+            panel.domain_spin.setValue(domain)
+            panel.domain_spin.blockSignals(False)
+            panel._do_update_plot()
+
+        deadline = time.monotonic() + 15
+        while (panel._running_worker is not None or panel._replot_pending) and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+
+        assert state["peak"] == 1
+        # The first run, then one replot with the latest settings.
+        assert state["domains"] == [5.0, 8.0]
+        assert panel.plotter.add_mesh.called
+        panel.deleteLater()
+        qapp.processEvents()
+
+
+class TestSessionLoad:
+    _BOGUS_DIVERGENCE = {
+        "dP_dx": "1", "dQ_dy": "1", "dR_dz": "1", "formula": "f",
+        "unsimplified": "999", "final": "999",
+    }
+    _BOGUS_CURL = {
+        key: "999" for key in (
+            "dR_dy", "dQ_dz", "dP_dz", "dR_dx", "dQ_dx", "dP_dy",
+            "i_comp_unsimplified", "j_comp_unsimplified", "k_comp_unsimplified",
+            "i_comp", "j_comp", "k_comp", "final_i", "final_j", "final_k",
+        )
+    }
+
+    def _open(self, qapp, monkeypatch, tmp_dir, p_text):
+        import json
+
+        import src.ui.app_window as app_window
+
+        path = tmp_dir / "session.json"
+        path.write_text(json.dumps({
+            "P": p_text, "Q": "y", "R": "z",
+            "results": {"divergence": self._BOGUS_DIVERGENCE, "curl": self._BOGUS_CURL},
+        }), encoding="utf-8")
+        monkeypatch.setattr(
+            app_window.QFileDialog, "getOpenFileName", lambda *a, **k: (str(path), "")
+        )
+        messages = []
+        monkeypatch.setattr(
+            app_window.QMessageBox, "information", lambda *args: messages.append(args[2])
+        )
+        window = VectorMachineWindow()
+        window.on_open_session()
+        return window, messages
+
+    def test_saved_results_are_recomputed_not_trusted(self, qapp, monkeypatch, tmp_dir):
+        window, messages = self._open(qapp, monkeypatch, tmp_dir, "x")
+        deadline = time.monotonic() + 20
+        while (window.last_div_steps is None or window.last_curl_steps is None) \
+                and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+
+        assert messages == ["Session loaded successfully."]
+        assert window.last_div_steps["final"] == "3"
+        assert window.last_curl_steps["final_i"] == "0"
+        assert "999" not in window.results_panel.results_text.toPlainText()
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_results_dropped_when_field_is_invalid(self, qapp, monkeypatch, tmp_dir):
+        window, messages = self._open(qapp, monkeypatch, tmp_dir, "x +")
+        qapp.processEvents()
+        assert "not restored" in messages[0]
+        assert window.last_div_steps is None and window.last_curl_steps is None
+        assert "999" not in window.results_panel.results_text.toPlainText()
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()

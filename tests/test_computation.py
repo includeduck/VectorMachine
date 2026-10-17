@@ -194,3 +194,42 @@ class TestNumericalEvaluation:
         u, v, w = evaluate_field(p, q, r, x_grid, y_grid, z_grid)
         assert np.isnan(u[0, 1]) or np.isinf(u[0, 1])
         assert not np.isnan(u[0, 0]) and not np.isnan(u[0, 2])
+
+
+class TestFactorialAndCacheThreading:
+    def test_factorial_fields_evaluate_numerically(self):
+        # lambdify used to map factorial to math.factorial, which rejects arrays.
+        p, _ = parse_expression("x!")
+        zero, _ = parse_expression("0")
+        xs = np.array([-1.5, 0.0, 1.0, 3.0, -2.0])
+        grid = np.meshgrid(xs, [0.0], [0.0], indexing="ij")
+        u, _, _ = evaluate_field(p, zero, zero, *grid)
+        values = u.ravel()
+        assert np.allclose(values[:4], [-3.5449077018, 1.0, 1.0, 6.0])
+        assert np.isnan(values[4])  # pole of gamma(x + 1)
+
+    def test_concurrent_requests_compile_once(self, monkeypatch):
+        import threading
+        import time
+
+        import src.core.computation as computation
+
+        p, _ = parse_expression("x*y")
+        real_lambdify = computation.sp.lambdify
+        calls = []
+
+        def slow_lambdify(*args, **kwargs):
+            calls.append(1)
+            time.sleep(0.05)
+            return real_lambdify(*args, **kwargs)
+
+        monkeypatch.setattr(computation.sp, "lambdify", slow_lambdify)
+        threads = [
+            threading.Thread(target=computation._get_lambdified, args=((p, p, p),))
+            for _ in range(8)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert len(calls) == 1

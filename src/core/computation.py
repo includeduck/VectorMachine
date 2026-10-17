@@ -1,4 +1,6 @@
+import math
 import re
+import threading
 from collections import OrderedDict
 
 sp = None
@@ -15,6 +17,8 @@ _safe_global_dict = None
 _guard_global_dict = None
 _lambdify_cache = OrderedDict()
 _LAMBDA_CACHE_LIMIT = 128
+# Visualization workers call ``_get_lambdified`` from their own threads.
+_lambdify_lock = threading.Lock()
 
 _SUPPORTED_IDENTIFIERS = frozenset({
     "x", "y", "z", "E", "pi",
@@ -182,16 +186,34 @@ def parse_expression(expr_str):
     except Exception as e:
         return None, f"Syntax Error: {e!s}"
 
+def _factorial_one(value):
+    # Poles of gamma(v + 1) are the negative integers (and -inf).
+    if math.isnan(value) or (value < 0 and value == math.floor(value)):
+        return math.nan
+    try:
+        return math.gamma(value + 1.0)
+    except OverflowError:
+        return math.inf
+
+def _numpy_factorial(values):
+    """Array-safe ``x! = gamma(x + 1)``; the default maps to ``math.factorial``."""
+    return np.vectorize(_factorial_one, otypes=[float])(np.asarray(values, dtype=float))
+
 def _get_lambdified(expressions):
     """Return one cached NumPy function for all three field components."""
     key = tuple(expressions)
-    try:
-        func = _lambdify_cache.pop(key)
-    except KeyError:
-        func = sp.lambdify((x, y, z), key, modules='numpy')
-        if len(_lambdify_cache) >= _LAMBDA_CACHE_LIMIT:
-            _lambdify_cache.popitem(last=False)
-    _lambdify_cache[key] = func
+    # Held across ``lambdify`` too, so concurrent requests for the same field
+    # compile it once instead of racing on the cache.
+    with _lambdify_lock:
+        try:
+            func = _lambdify_cache.pop(key)
+        except KeyError:
+            func = sp.lambdify(
+                (x, y, z), key, modules=[{'factorial': _numpy_factorial}, 'numpy']
+            )
+            if len(_lambdify_cache) >= _LAMBDA_CACHE_LIMIT:
+                _lambdify_cache.popitem(last=False)
+        _lambdify_cache[key] = func
     return func
 
 def compute_divergence(P_expr, Q_expr, R_expr):
@@ -295,4 +317,5 @@ def evaluate_field(P_expr, Q_expr, R_expr, x_grid, y_grid, z_grid):
     return u, v, w
 
 def clear_lambdify_cache():
-    _lambdify_cache.clear()
+    with _lambdify_lock:
+        _lambdify_cache.clear()

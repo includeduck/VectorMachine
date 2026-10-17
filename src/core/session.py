@@ -3,6 +3,8 @@ import os
 import tempfile
 from datetime import datetime
 
+SESSION_VERSION = 1
+
 _DIVERGENCE_KEYS = frozenset({
     "dP_dx", "dQ_dy", "dR_dz", "formula", "unsimplified", "final",
 })
@@ -28,6 +30,12 @@ def _validate_steps(steps, required_keys, name):
 def _validate_session_data(data):
     if not isinstance(data, dict):
         return "Session file must contain a JSON object."
+    # Files written before versioning have no "version" and are version 1.
+    version = data.get("version", 1)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        return "Session version is malformed."
+    if version > SESSION_VERSION:
+        return "Session was saved by a newer version of VectorMachine."
     if not all(isinstance(data.get(key, ""), str) for key in ("P", "Q", "R")):
         return "Session field expressions must be text."
 
@@ -45,6 +53,7 @@ def save_session(filepath, p_str, q_str, r_str, has_results=False, divergence_st
     Saves the current session state to a JSON file.
     """
     data = {
+        "version": SESSION_VERSION,
         "timestamp": datetime.now().isoformat(),
         "P": p_str,
         "Q": q_str,

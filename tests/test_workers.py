@@ -1,5 +1,7 @@
 """Tests for background compute and visualization worker threads."""
 
+import pytest
+
 from src.ui.compute_worker import ComputeWorker
 from src.ui.visualization_worker import VisualizationWorker
 
@@ -149,3 +151,33 @@ class TestVisualizationWorker:
         qapp.processEvents()
 
         assert len(results) == 0
+
+
+class TestVisualizationWorkerFields:
+    def _run(self, qapp, texts, is_2d):
+        from src.core.computation import parse_expression
+
+        p, q, r = (parse_expression(text)[0] for text in texts)
+        worker = VisualizationWorker(
+            revision_id=1, p_expr=p, q_expr=q, r_expr=r,
+            domain=2, density=5, scale_factor=1.0, is_2d=is_2d,
+        )
+        results, errors = [], []
+        worker.finished_ok.connect(lambda *args: results.append(args))
+        worker.finished_err.connect(lambda *args: errors.append(args))
+        worker.start()
+        worker.wait(5000)
+        qapp.processEvents()
+        assert not errors
+        return results[0]
+
+    def test_2d_mode_drops_out_of_plane_component(self, qapp):
+        _, points, vectors, magnitudes, *_ = self._run(qapp, ("x", "y", "1"), is_2d=True)
+        assert (vectors[:, 2] == 0).all()
+        assert magnitudes == pytest.approx(
+            (points[:, 0] ** 2 + points[:, 1] ** 2) ** 0.5
+        )
+
+    def test_factorial_field_can_be_plotted(self, qapp):
+        _, points, vectors, *_ = self._run(qapp, ("x!", "0", "0"), is_2d=False)
+        assert len(points) > 0

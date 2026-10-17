@@ -25,10 +25,10 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 6 | Medium | Compute worker | Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit | **Fixed** |
 | 7 | Medium | Results / Export | The panel shows only the latest result, so PDF and TXT/MD exports disagree | **Fixed** |
 | 8 | Medium | Visualization | Changing the scale slider with keyboard, wheel or a groove click never redraws | **Fixed** |
-| 9 | Medium | Sessions | Loaded results are shown without checking they match the loaded field | Code review |
-| 10 | Medium | Visualization | Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) | Confirmed |
-| 11 | Medium | Visualization | Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component | Code review |
-| 12 | Medium | Concurrency | Visualization workers pile up and share an unlocked `OrderedDict` cache | Code review |
+| 9 | Medium | Sessions | Loaded results are shown without checking they match the loaded field | **Fixed** |
+| 10 | Medium | Visualization | Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) | **Fixed** |
+| 11 | Medium | Visualization | Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component | **Fixed** |
+| 12 | Medium | Concurrency | Visualization workers pile up and share an unlocked `OrderedDict` cache | **Fixed** |
 | 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | Confirmed |
 | 14 | Low | Theming | Hard-coded colours ignore the dark theme | Code review |
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | Confirmed |
@@ -161,7 +161,7 @@ Only `sliderReleased` is connected. Keyboard input (arrow keys, PageUp/PageDown)
 
 **Resolution:** `valueChanged` now schedules a redraw unless the slider is being dragged; drags still redraw once, on `sliderReleased`.
 
-## 9. Loaded results are shown without checking they match the loaded field — Medium
+## 9. Loaded results are shown without checking they match the loaded field — Medium — **Fixed**
 
 **Where:** [app_window.py:342-346](src/ui/app_window.py:342), [session.py:28-40](src/core/session.py:28)
 
@@ -174,7 +174,9 @@ The session format also has no `version` field.
 
 **Fix:** on load, discard the saved results and recompute from `P`, `Q` and `R` (it's cheap), or at least store a hash of the parsed inputs and drop results that don't match. Add `"version": 1`.
 
-## 10. Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) — Medium
+**Resolution:** on load, the saved result strings are no longer displayed. The app recomputes every result the session had, through the normal background compute path, from the loaded field. If the field doesn't parse, the results are dropped and the user is told why. Saved sessions now include `"version": 1`; files without it still load, and newer or malformed versions are rejected.
+
+## 10. Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) — Medium — **Fixed**
 
 **Where:** [computation.py:109](src/core/computation.py:109) (`lambdify(..., modules='numpy')`)
 
@@ -182,20 +184,26 @@ The session format also has no `version` field.
 
 **Fix:** lambdify with `modules=['numpy', 'scipy']` and map `factorial` to `scipy.special.gamma(x+1)`, or catch it and show "factorial can't be plotted".
 
-## 11. Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component — Medium
+**Resolution:** `lambdify` now maps `factorial` to an array-safe `gamma(x + 1)` (NaN at the poles), with no new dependency.
+
+## 11. Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component — Medium — **Fixed**
 
 **Where:** [visualization_panel.py:305](src/ui/visualization_panel.py:305), [visualization_worker.py:50-68](src/ui/visualization_worker.py:50)
 
 - `cloud.glyph(scale="magnitude", factor=scale_factor)` makes arrow length equal to `|F| × factor` in world units, with no reference to grid spacing or the field's maximum. With the default domain ±5 and `F = <x², y², z²>`, arrows reach about 15 units long in a 10-unit box. Near singularities (`1/x`), a few arrows grow huge and the rest shrink to dots. Normalise by `max(|F|)`, or by a robust percentile, times the grid spacing.
 - In **2D** mode the grid lies on `z = 0`, but the vectors keep `w` and the magnitude includes it. A "2D quiver" of `<-y, x, 1>` shows arrows tilted out of the plane, viewed from straight above. Zero `w` in 2D mode.
 
-## 12. Visualization workers pile up and share an unlocked `OrderedDict` cache — Medium
+**Resolution:** arrow length is now `min(|F| / p95(|F|), 1) × grid spacing × scale`, so the longest arrows fill one grid step at the default scale, and outliers near poles no longer shrink the rest. Colour still encodes the true magnitude. In 2D mode the worker zeroes `w`.
+
+## 12. Visualization workers pile up and share an unlocked `OrderedDict` cache — Medium — **Fixed**
 
 **Where:** [visualization_panel.py:226-264](src/ui/visualization_panel.py:226), [computation.py:103-113](src/core/computation.py:103)
 
 `_cancel_active_worker` only sets a flag. A worker already inside `evaluate_field` keeps running, and every change to a spinbox or radio button starts a new `QThread`. With a slow expression, threads accumulate. Several threads can then run `_get_lambdified` at once, and it does `pop`, insert and `popitem` on a module-level `OrderedDict` with no lock. That is a data race: at worst a `KeyError` from `popitem` on an empty dict, or a duplicate lambdify.
 
 **Fix:** add a `threading.Lock` around the cache. Keep at most one viz worker running, and start the latest request only after the current one finishes.
+
+**Resolution:** `_get_lambdified` holds a lock, including while compiling, so concurrent requests for the same field compile it once. The panel runs at most one visualization worker. A request made while one is evaluating drops that worker's result and replots with the latest settings once it exits.
 
 ## 13. At startup all three fields show the red error "Expression cannot be empty." — Low
 
