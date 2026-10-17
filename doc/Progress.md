@@ -84,3 +84,10 @@ A full audit (`bugreport.md`) found 18 issues, and all of them are fixed.
 ## Crash-Safe 3D Start-up
 
 - VTK could *segfault* instead of raising when OpenGL was unusable (reproduced under Qt's `offscreen` platform: exit code 139), so the Matplotlib fallback never engaged. A crash-isolated check (`src/ui/vtk_probe.py`) now decides first: headless Qt platforms are ruled out at once, and otherwise a child process renders one frame. It starts in the background at launch, is cached, and re-runs on **Retry 3D view**.
+
+## Branding
+
+- Logo master in `assets/logo-master.png` (the version without the Python badge); `tools/build_brand_assets.py` regenerates every derived image from it.
+- The app has its own window and taskbar icon (with its own Windows taskbar identity), a **Help → About** dialog (version, repository link, library versions, "Copy details"), and a branded PDF header that also states the vector field and generation time.
+- The README header uses the logo, with variants for GitHub's light and dark themes; `assets/social-preview.png` is ready to upload as the repository's social preview.
+- The version is defined once, in `src/version.py`.
