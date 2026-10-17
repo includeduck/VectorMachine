@@ -1,6 +1,7 @@
-import os
+"""Plain-text and Markdown export.  Headless: PDF export, which needs Qt,
+lives in ``src/ui/pdf_export.py``."""
 
-from PySide6.QtGui import QPageSize, QPdfWriter, QTextDocument
+import os
 
 
 def export_text(filepath, p_text, q_text, r_text, div_steps, curl_steps):
@@ -45,11 +46,3 @@ def export_markdown(filepath, p_text, q_text, r_text, div_steps, curl_steps):
             f.write(f"- **j component**: `{curl_steps['j_comp_unsimplified']}` &rarr; `{curl_steps['final_j']}`\n")
             f.write(f"- **k component**: `{curl_steps['k_comp_unsimplified']}` &rarr; `{curl_steps['final_k']}`\n")
             f.write(f"- **Final Vector**: `< {curl_steps['final_i']}, {curl_steps['final_j']}, {curl_steps['final_k']} >`\n")
-
-def export_pdf(filepath, html_content):
-    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-    doc = QTextDocument()
-    doc.setHtml(html_content)
-    writer = QPdfWriter(str(filepath))
-    writer.setPageSize(QPageSize(QPageSize.A4))
-    doc.print_(writer)

@@ -14,12 +14,13 @@ from shiboken6 import isValid
 
 from src.core.compute_process import get_compute_process
 from src.core.debug_log import debug_log
-from src.core.export import export_markdown, export_pdf, export_text
+from src.core.export import export_markdown, export_text
 from src.core.session import load_session, save_session
-from src.core.settings import get_theme, set_theme
 from src.ui.compute_worker import ComputeWorker
 from src.ui.input_panel import InputPanel
+from src.ui.pdf_export import export_pdf
 from src.ui.results_panel import ResultsPanel
+from src.ui.settings import get_theme, set_theme
 from src.ui.themes import palette_for, stylesheet_for
 from src.ui.visualization_panel import VisualizationPanel
 
