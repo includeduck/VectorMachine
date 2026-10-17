@@ -210,7 +210,8 @@ class VisualizationPanel(QWidget):
         return min(density, MAX_3D_DENSITY)
 
     def _do_update_plot(self):
-        if not self.p_expr:
+        # Compare against None: a SymPy zero (e.g. F = <0, x, 0>) is falsy.
+        if self.p_expr is None:
             return
         # The visualization is intentionally lazy.  Input validation happens
         # on the Results tab too, so it must never spin up VTK in the

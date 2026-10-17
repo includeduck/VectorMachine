@@ -1,8 +1,9 @@
 """Tests for UI panels, main window, and widget interactions."""
 
 import time
+from unittest.mock import MagicMock
 
-from src.core.computation import compute_curl, compute_divergence
+from src.core.computation import compute_curl, compute_divergence, parse_expression
 from src.ui.app_window import VectorMachineWindow
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
@@ -101,6 +102,22 @@ class TestVisualizationPanel:
         panel.deleteLater()
         qapp.processEvents()
 
+    def test_zero_first_component_still_plots(self, qapp):
+        # A SymPy zero is falsy; F = <0, x, 0> used to skip plotting entirely.
+        p, q, r = (parse_expression(text)[0] for text in ("0", "x", "0"))
+        panel = VisualizationPanel()
+        panel._vtk_initialized = True
+        panel.plotter = MagicMock()
+        panel.p_expr, panel.q_expr, panel.r_expr = p, q, r
+
+        panel._do_update_plot()
+        worker = panel._current_worker
+        assert worker is not None
+        worker.wait(3000)
+        qapp.processEvents()
+        panel.deleteLater()
+        qapp.processEvents()
+
     def test_screenshot_export(self, qapp, tmp_dir):
         panel = VisualizationPanel()
         shot_path = tmp_dir / "viewport.png"
@@ -179,6 +196,33 @@ class TestVectorMachineWindow:
         assert not window.btn_cancel.isEnabled()
         assert window.btn_divergence.isEnabled()
 
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_stale_worker_signal_does_not_clobber_active_compute(self, qapp):
+        window = VectorMachineWindow()
+        window.load_example("x", "y", "z")
+        window.on_compute_divergence()
+        stale_worker = window._compute_worker
+        window.on_cancel_compute()
+        window.on_compute_divergence()
+        active_worker = window._compute_worker
+        assert active_worker is not stale_worker
+
+        # The cancelled worker's result arrives after its replacement started.
+        stale_worker.finished_ok.emit("divergence", {"stale": True})
+        assert window._compute_in_progress
+        assert window._compute_worker is active_worker
+        assert window.last_div_steps is None
+
+        for _ in range(300):
+            qapp.processEvents()
+            if window.last_div_steps is not None:
+                break
+            time.sleep(0.01)
+        assert window.last_div_steps is not None
+        assert window.last_div_steps["final"] == "3"
         window.close()
         window.deleteLater()
         qapp.processEvents()

@@ -242,8 +242,14 @@ class VectorMachineWindow(QMainWindow):
         self._active_compute_revision = self._input_revision
         worker = ComputeWorker(compute_type, P, Q, R, timeout_sec=10.0, parent=self)
         self._compute_worker = worker
-        worker.finished_ok.connect(self._on_compute_finished)
-        worker.finished_err.connect(self._on_compute_error)
+        # Route results through the worker identity so a cancelled worker's
+        # already-queued signal cannot reset the state of its replacement.
+        worker.finished_ok.connect(
+            lambda compute_type, result, w=worker: self._on_compute_finished(compute_type, result, w)
+        )
+        worker.finished_err.connect(
+            lambda compute_type, error_msg, w=worker: self._on_compute_error(compute_type, error_msg, w)
+        )
         worker.finished.connect(lambda w=worker: self._on_compute_worker_finished(w))
         worker.finished.connect(worker.deleteLater)
         self._set_compute_enabled(False)
@@ -261,7 +267,12 @@ class VectorMachineWindow(QMainWindow):
             "A",
         )
 
-    def _on_compute_finished(self, compute_type, result):
+    def _is_stale_worker(self, worker):
+        return worker is not None and worker is not self._compute_worker
+
+    def _on_compute_finished(self, compute_type, result, worker=None):
+        if self._is_stale_worker(worker):
+            return
         is_current = self._active_compute_revision == self._input_revision
         self._compute_in_progress = False
         self._compute_worker = None
@@ -277,7 +288,9 @@ class VectorMachineWindow(QMainWindow):
             self.results_panel.display_curl(result)
         self.tab_widget.setCurrentWidget(self.results_panel)
 
-    def _on_compute_error(self, compute_type, error_msg):
+    def _on_compute_error(self, compute_type, error_msg, worker=None):
+        if self._is_stale_worker(worker):
+            return
         is_current = self._active_compute_revision == self._input_revision
         self._compute_in_progress = False
         self._compute_worker = None

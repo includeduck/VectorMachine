@@ -1,5 +1,9 @@
 """Tests for the symbolic and numerical computation core."""
 
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 
 from src.core.computation import (
@@ -27,6 +31,49 @@ class TestExpressionParsing:
         expr, err = parse_expression("x**3 + y**2")
         assert err is None
         assert str(expr) == "x**3 + y**2"
+
+    def test_caret_is_exponentiation(self):
+        # ``^`` used to be parsed as Python XOR: "2^3" silently became 1.
+        cases = {"x^2": "x**2", "2^3": "8", "sin^2(x)": "sin(x)**2", "x^2 + y^3": "x**2 + y**3"}
+        for text, expected in cases.items():
+            expr, err = parse_expression(text)
+            assert err is None, f"{text}: {err}"
+            assert str(expr) == expected
+
+    def test_oversized_numbers_rejected_without_hanging(self):
+        # Exact bignum evaluation holds the GIL, so run in a child process
+        # with a timeout: a regression must fail the test, not hang the suite.
+        hostile = [
+            "9**9**9", "9^9^9", "(9**9)**(9**9)", "sqrt(2)**(10**9)",
+            "(1/3)**(10**9)", "(10**8)!", "10000000000!", "2**4000",
+            "10**900*10**900",
+        ]
+        script = (
+            "import sys\n"
+            "from src.core.computation import parse_expression\n"
+            "for text in sys.argv[1:]:\n"
+            "    expr, err = parse_expression(text)\n"
+            "    assert expr is None and 'too large' in err, (text, expr, err)\n"
+        )
+        project_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-c", script, *hostile],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+
+    def test_bounded_numbers_still_allowed(self):
+        cases = {
+            "2**100": str(2**100), "5!": "120", "1**(10**9)": "1",
+            "(-1)**(10**9)": "1", "x**(10**9)": "x**1000000000",
+        }
+        for text, expected in cases.items():
+            expr, err = parse_expression(text)
+            assert err is None, f"{text}: {err}"
+            assert str(expr) == expected
 
     def test_empty_and_whitespace_input(self):
         expr, err = parse_expression("   ")

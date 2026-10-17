@@ -5,11 +5,14 @@ sp = None
 parse_expr = None
 standard_transformations = None
 implicit_multiplication_application = None
+convert_xor = None
 np = None
+mpmath = None
 
 x, y, z = None, None, None
 local_dict = None
 _safe_global_dict = None
+_guard_global_dict = None
 _lambdify_cache = OrderedDict()
 _LAMBDA_CACHE_LIMIT = 128
 
@@ -21,16 +24,28 @@ _SUPPORTED_IDENTIFIERS = frozenset({
 })
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
 _ALLOWED_CHARACTER_RE = re.compile(r"^[0-9A-Za-z_+\-*/^().,!\s]*$")
+# Exact integer arithmetic is evaluated eagerly while parsing and holds the
+# GIL, so inputs like ``9**9**9`` would freeze the app.  Reject any number
+# whose exact value would exceed these bounds before SymPy computes it.
+_MAX_NUMBER_DIGITS = 1000
+_MAX_FACTORIAL_ARGUMENT = 1000
+_TOO_LARGE_ERROR = f"Number is too large (limit is {_MAX_NUMBER_DIGITS} digits)."
+
+
+class _NumberTooLarge(Exception):
+    pass
 
 def _lazy_init():
     global sp, parse_expr, standard_transformations, implicit_multiplication_application, np
-    global x, y, z, local_dict, _safe_global_dict
+    global convert_xor, mpmath, x, y, z, local_dict, _safe_global_dict, _guard_global_dict
     
     if sp is not None:
         return
         
+    import mpmath as _mpmath
     import numpy as _np
     import sympy as _sp
+    from sympy.parsing.sympy_parser import convert_xor as _cx
     from sympy.parsing.sympy_parser import implicit_multiplication_application as _ima
     from sympy.parsing.sympy_parser import parse_expr as _pe
     from sympy.parsing.sympy_parser import standard_transformations as _st
@@ -39,7 +54,9 @@ def _lazy_init():
     parse_expr = _pe
     standard_transformations = _st
     implicit_multiplication_application = _ima
+    convert_xor = _cx
     np = _np
+    mpmath = _mpmath
     
     x, y, z = sp.symbols('x y z')
     local_dict = {
@@ -61,6 +78,63 @@ def _lazy_init():
         'Rational': sp.Rational,
         'factorial': sp.factorial,
     }
+    # Namespace for the unevaluated pre-parse used by ``_check_number_sizes``.
+    # ``parse_expr(evaluate=False)`` emits explicit Add/Mul/Pow calls, and the
+    # ``n!`` notation is not covered by it, so factorial must stay unevaluated.
+    _guard_global_dict = dict(
+        _safe_global_dict,
+        Add=sp.Add,
+        Mul=sp.Mul,
+        Pow=sp.Pow,
+        factorial=lambda arg: sp.factorial(arg, evaluate=False),
+    )
+
+def _digits_of_power(base, exponent):
+    """Approximate decimal digits of ``base**exponent`` without computing it."""
+    try:
+        magnitude = mpmath.mpf(sp.Abs(base).evalf(15))
+    except Exception:
+        return 0
+    if magnitude == 0:
+        return 0
+    return abs(mpmath.log10(magnitude)) * abs(mpmath.mpf(exponent.p) / exponent.q)
+
+def _rebuild_checked(node):
+    """Evaluate an unevaluated tree bottom-up, refusing oversized numbers."""
+    if not node.args:
+        return node
+    args = [_rebuild_checked(arg) for arg in node.args]
+    if node.func is sp.Pow:
+        base, exponent = args
+        if (
+            base.is_number
+            and isinstance(exponent, sp.Rational)
+            and _digits_of_power(base, exponent) > _MAX_NUMBER_DIGITS
+        ):
+            raise _NumberTooLarge
+    elif node.func is sp.factorial:
+        (argument,) = args
+        if isinstance(argument, sp.Integer) and argument > _MAX_FACTORIAL_ARGUMENT:
+            raise _NumberTooLarge
+    return node.func(*args)
+
+def _check_number_sizes(expression, transformations):
+    unevaluated = parse_expr(
+        expression,
+        local_dict=local_dict.copy(),
+        global_dict=_guard_global_dict.copy(),
+        transformations=transformations,
+        evaluate=False,
+    )
+    if isinstance(unevaluated, sp.Basic):
+        _rebuild_checked(unevaluated)
+
+def _has_oversized_integer(expr):
+    limit_bits = int(_MAX_NUMBER_DIGITS * 3.33) + 1
+    return any(
+        max(abs(number.p), number.q).bit_length() > limit_bits
+        for number in expr.atoms(sp.Rational)
+    )
 
 def parse_expression(expr_str):
     """
@@ -87,7 +161,11 @@ def parse_expression(expr_str):
         return None, f"Unsupported name: {unknown_identifiers[0]}."
 
     try:
-        transformations = standard_transformations + (implicit_multiplication_application,)
+        transformations = standard_transformations + (
+            convert_xor,
+            implicit_multiplication_application,
+        )
+        _check_number_sizes(expression, transformations)
         expr = parse_expr(
             expression,
             local_dict=local_dict.copy(),
@@ -96,7 +174,11 @@ def parse_expression(expr_str):
         )
         if not isinstance(expr, sp.Expr) or not expr.free_symbols <= {x, y, z}:
             return None, "Expression must use only x, y, and z."
+        if _has_oversized_integer(expr):
+            return None, _TOO_LARGE_ERROR
         return expr, None
+    except _NumberTooLarge:
+        return None, _TOO_LARGE_ERROR
     except Exception as e:
         return None, f"Syntax Error: {e!s}"
 
