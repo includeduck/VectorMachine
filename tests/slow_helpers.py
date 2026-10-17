@@ -19,3 +19,10 @@ def add(a, b):
 
 def fail(message):
     raise ValueError(message)
+
+
+def crash(*args):
+    """Kill the child process outright, as a segfault in a C extension would."""
+    import os
+
+    os._exit(3)

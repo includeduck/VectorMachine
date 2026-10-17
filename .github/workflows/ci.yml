@@ -32,7 +32,7 @@ jobs:
 
       - name: Verify Python Compilation
         run: |
-          python -m compileall src tests test_debug.py
+          python -m compileall src tests
 
   test:
     name: Test (${{ matrix.os }} - Python ${{ matrix.python-version }})
@@ -90,10 +90,6 @@ jobs:
       - name: Run Pytest Test Suite
         run: |
           $GUI_PREFIX pytest -v --cov=src --cov-report=xml --cov-report=term
-
-      - name: Run Legacy Debug Test Suite
-        run: |
-          $GUI_PREFIX python test_debug.py
 
       - name: Smoke Test Application Startup
         run: |

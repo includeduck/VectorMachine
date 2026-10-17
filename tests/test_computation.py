@@ -233,3 +233,64 @@ class TestFactorialAndCacheThreading:
         for thread in threads:
             thread.join()
         assert len(calls) == 1
+
+
+class TestScientificNotation:
+    def test_accepted(self):
+        cases = {
+            "1e3": 1000.0, "2.5e-3": 0.0025, "1E+2": 100.0, ".5e1": 5.0, "3.e2": 300.0,
+        }
+        for text, value in cases.items():
+            expr, err = parse_expression(text)
+            assert err is None, f"{text}: {err}"
+            assert float(expr) == value
+
+    def test_combines_with_symbols(self):
+        expr, err = parse_expression("1e3*x + 2e-1 y")
+        assert err is None
+        assert str(expr) == "1000.0*x + 0.2*y"
+
+    def test_malformed_or_bare_exponents_still_rejected(self):
+        for text in ("x1e3", "2e", "e3", "1e"):
+            expr, err = parse_expression(text)
+            assert expr is None, text
+            assert "Unsupported name" in err
+
+
+class TestLazyInitThreadSafety:
+    def test_concurrent_first_use_sees_a_complete_module(self):
+        # Fresh interpreter, so the module is uninitialised.  ``symbols`` is
+        # slowed down to widen the window in which the old code had already
+        # published ``sp`` but not yet ``x``/``y``/``z``/``local_dict``.
+        script = (
+            "import threading, time\n"
+            "import sympy\n"
+            "real_symbols = sympy.symbols\n"
+            "def slow_symbols(*args, **kwargs):\n"
+            "    time.sleep(0.3)\n"
+            "    return real_symbols(*args, **kwargs)\n"
+            "sympy.symbols = slow_symbols\n"
+            "from src.core.computation import parse_expression\n"
+            "errors = []\n"
+            "def parse():\n"
+            "    expr, err = parse_expression('x*y + z')\n"
+            "    if err or str(expr) != 'x*y + z':\n"
+            "        errors.append(err)\n"
+            "first = threading.Thread(target=parse)\n"
+            "first.start()\n"
+            # Latecomers arrive while the first thread is mid-initialisation.
+            "time.sleep(0.1)\n"
+            "late = [threading.Thread(target=parse) for _ in range(7)]\n"
+            "[t.start() for t in late]\n"
+            "[t.join() for t in [first, *late]]\n"
+            "print('errors:', errors)\n"
+            "assert not errors\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr

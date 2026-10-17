@@ -15,6 +15,13 @@ import threading
 _STARTUP_TIMEOUT_SEC = 60.0
 
 
+_STARTUP_FAILED = (
+    "The computation engine failed to start. A script that embeds "
+    "VectorMachine must guard its entry point with "
+    "`if __name__ == \"__main__\":` (the engine re-imports it on spawn)."
+)
+
+
 class ComputeTimeout(Exception):
     pass
 
@@ -54,6 +61,9 @@ class ComputeProcess:
         self._conn = None
         self._ready_process = None
         self._busy_job = None
+        # Set by ``cancel`` so a killed child is reported as a cancel, while
+        # a child that dies on its own is reported as an error.
+        self._cancel_requested = False
 
     def start(self):
         """Spawn the child ahead of time so the first request starts warm."""
@@ -103,29 +113,38 @@ class ComputeProcess:
                 self._ensure_started()
                 process, conn = self._process, self._conn
                 self._busy_job = job
+                self._cancel_requested = False
             try:
                 return self._request(process, conn, func, args, timeout)
             finally:
                 with self._state_lock:
                     self._busy_job = None
+                    self._cancel_requested = False
 
     def _request(self, process, conn, func, args, timeout):
+        started = self._ready_process is process
         try:
-            if self._ready_process is not process:
+            if not started:
                 if not conn.poll(_STARTUP_TIMEOUT_SEC):
                     self._discard(process)
-                    raise RuntimeError("The computation engine failed to start.")
+                    raise RuntimeError(_STARTUP_FAILED)
                 conn.recv()
                 self._ready_process = process
+                started = True
             conn.send((func, args))
             if not conn.poll(timeout):
                 self._discard(process)
                 raise ComputeTimeout
             status, payload = conn.recv()
         except (EOFError, OSError):
-            # The child was killed by ``cancel`` (or crashed).
+            with self._state_lock:
+                cancelled = self._cancel_requested
             self._discard(process)
-            raise ComputeCancelled from None
+            if cancelled:
+                raise ComputeCancelled from None
+            raise RuntimeError(
+                "The computation engine stopped unexpectedly." if started else _STARTUP_FAILED
+            ) from None
         if status == "err":
             raise RuntimeError(payload)
         return payload
@@ -135,6 +154,7 @@ class ComputeProcess:
         with self._state_lock:
             if job is None or self._busy_job is not job:
                 return
+            self._cancel_requested = True
             process = self._process
         if process is not None and process.is_alive():
             process.kill()

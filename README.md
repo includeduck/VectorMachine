@@ -12,14 +12,14 @@
 
 **VectorMachine** is a powerful educational and mathematical tool designed to help students, engineers, and researchers explore vector fields. Built with a sleek, modern PySide6 interface, it seamlessly bridges symbolic mathematics with interactive 3D visualizations.
 
-Whether you're calculating divergence, evaluating curl, or trying to visualize how a field behaves in three-dimensional space, VectorMachine does the heavy lifting for you—showing all its work step-by-step.
+Whether you're calculating divergence, evaluating curl, or trying to visualize how a field behaves in three-dimensional space, VectorMachine does the heavy lifting for you and shows the intermediate steps along the way.
 
 ---
 
 ## ✨ Features
 
 - **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl with execution timeout protection (10s) and interactive computation cancellation.
-- **Step-by-Step Derivations**: Don't just get the final answer. VectorMachine shows the exact formulas and unsimplified steps used to arrive at the solution.
+- **Worked Steps**: Alongside the final answer, VectorMachine shows the formula, every partial derivative, and the unsimplified expression before simplification. (It does not yet name the differentiation rules, such as the product or chain rule, behind each derivative.)
 - **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing smooth 2D quiver plots and 3D arrow glyphs evaluated asynchronously off the GUI thread with non-blocking UI responsiveness.
 - **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or high-fidelity `.png` reports captured directly from the PyVista render buffer.
 - **Keyboard Navigation**: Highly accessible with built-in shortcuts to keep your hands on the keyboard.
@@ -35,7 +35,7 @@ Make sure you have Python 3.12+ installed (the pinned NumPy release requires it)
 Clone the repository and install the requirements:
 
 ```bash
-git clone https://github.com/yourusername/VectorMachine.git
+git clone https://github.com/includeduck/VectorMachine.git
 cd VectorMachine
 python -m venv .venv
 # On Windows
@@ -68,6 +68,12 @@ ruff check .
 ```
 
 ---
+
+### Entering Fields
+- Use `x`, `y` and `z`, with `**` or `^` for powers and implicit multiplication (`2x y` is `2*x*y`).
+- Functions: `sin`, `cos`, `tan` and their inverse and hyperbolic forms, `exp`, `sqrt`, `log`/`ln`, `Abs`, `sign`, `floor`, `ceiling`, `atan2`, plus `x!`.
+- Constants `pi` and `E`; numbers may use scientific notation (`1e-3`).
+- Exact numbers are limited to 1000 digits, so an input like `9**9**9` is rejected rather than freezing the app.
 
 ### Theme
 - **View → Theme**: Switch between Light, Dark, and System themes (persisted across launches).

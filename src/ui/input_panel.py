@@ -41,17 +41,17 @@ class InputPanel(QWidget):
         self.p_input = QLineEdit()
         self.p_input.setPlaceholderText("e.g. x**2 * y")
         self.p_error = QLabel("")
-        self.p_error.setStyleSheet("color: red;")
+        self.p_error.setObjectName("fieldError")
         
         self.q_input = QLineEdit()
         self.q_input.setPlaceholderText("e.g. sin(z)")
         self.q_error = QLabel("")
-        self.q_error.setStyleSheet("color: red;")
+        self.q_error.setObjectName("fieldError")
         
         self.r_input = QLineEdit()
         self.r_input.setPlaceholderText("e.g. y * z")
         self.r_error = QLabel("")
-        self.r_error.setStyleSheet("color: red;")
+        self.r_error.setObjectName("fieldError")
         
         p_layout = QVBoxLayout()
         p_layout.addWidget(self.p_input)
@@ -72,7 +72,7 @@ class InputPanel(QWidget):
         layout.addWidget(self.group_box)
         
         self.preview_label = QLabel("Preview: F = <_, _, _>")
-        self.preview_label.setStyleSheet("font-weight: bold; color: green;")
+        self.preview_label.setObjectName("previewLabel")
         layout.addWidget(self.preview_label)
         
     def connect_signals(self):
@@ -86,8 +86,7 @@ class InputPanel(QWidget):
         # from computing the previous vector field during the debounce delay.
         self._cached_p = self._cached_q = self._cached_r = None
         self._is_valid = False
-        self.preview_label.setText("Preview: validating input...")
-        self.preview_label.setStyleSheet("font-weight: bold; color: #b36b00;")
+        self._set_preview("Preview: validating input...", "pending")
         self.inputChanged.emit()
         self.validation_timer.start()
         
@@ -108,24 +107,39 @@ class InputPanel(QWidget):
             "D",
         )
         
-        self.p_error.setText(p_err if p_err else "")
-        self.q_error.setText(q_err if q_err else "")
-        self.r_error.setText(r_err if r_err else "")
+        # An empty field is incomplete, not wrong: it keeps Compute disabled
+        # but shows no error (a fresh or cleared form would otherwise open
+        # with three red "cannot be empty" messages).
+        for label, text, err in (
+            (self.p_error, p_text, p_err),
+            (self.q_error, q_text, q_err),
+            (self.r_error, r_text, r_err),
+        ):
+            label.setText(err if err and text.strip() else "")
         
         self._is_valid = not (p_err or q_err or r_err) and bool(p_text and q_text and r_text)
-        if self._is_valid:
+        if not (p_text.strip() or q_text.strip() or r_text.strip()):
+            self._cached_p = self._cached_q = self._cached_r = None
+            self._set_preview("Preview: F = <_, _, _>", "empty")
+        elif self._is_valid:
             self._cached_p, self._cached_q, self._cached_r = p_expr, q_expr, r_expr
-            self.preview_label.setText(
-                f"Preview: F = < {p_expr}, {q_expr}, {r_expr} >"
-            )
-            self.preview_label.setStyleSheet("font-weight: bold; color: green;")
+            self._set_preview(f"Preview: F = < {p_expr}, {q_expr}, {r_expr} >", "valid")
         else:
             self._cached_p = self._cached_q = self._cached_r = None
-            self.preview_label.setText("Preview: [Invalid Input]")
-            self.preview_label.setStyleSheet("font-weight: bold; color: red;")
+            self._set_preview("Preview: [Invalid Input]", "invalid")
             
         self.inputChanged.emit()
         
+    def _set_preview(self, text, state):
+        """Show ``text``; its colour comes from the theme's ``state`` rule."""
+        self.preview_label.setText(text)
+        if self.preview_label.property("state") != state:
+            self.preview_label.setProperty("state", state)
+            # Property selectors are only re-evaluated on a re-polish.
+            style = self.preview_label.style()
+            style.unpolish(self.preview_label)
+            style.polish(self.preview_label)
+
     def get_expressions(self):
         debug_log(
             "input_panel.py:get_expressions",

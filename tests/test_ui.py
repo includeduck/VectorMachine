@@ -52,6 +52,20 @@ class TestInputPanel:
         panel.deleteLater()
         qapp.processEvents()
 
+    def test_empty_fields_show_no_errors(self, qapp):
+        panel = InputPanel()
+        errors = (panel.p_error, panel.q_error, panel.r_error)
+        assert [label.text() for label in errors] == ["", "", ""]
+        assert panel.preview_label.text() == "Preview: F = <_, _, _>"
+
+        # Partially filled: still invalid, but only real errors are shown.
+        panel.set_texts("x +", "", "  ")
+        assert not panel.is_valid()
+        assert panel.p_error.text() != ""
+        assert panel.q_error.text() == "" and panel.r_error.text() == ""
+        panel.deleteLater()
+        qapp.processEvents()
+
 
 class TestResultsPanel:
     """Test suite for computation results formatting and display."""
@@ -290,12 +304,21 @@ class TestVectorMachineWindow:
 
         # Edit input while compute is running
         window.input_panel.p_input.setText("x**2")
-        for _ in range(50):
+        # Wait for the stale computation to come back rather than a fixed
+        # time: a cold compute engine takes about a second to start.
+        deadline = time.monotonic() + 20
+        while (window._compute_in_progress or window.input_panel.validation_timer.isActive()) \
+                and time.monotonic() < deadline:
             qapp.processEvents()
             time.sleep(0.01)
+        qapp.processEvents()
 
-        # Stale results must be discarded
+        # Stale results must be discarded, the UI unlocked for the new field,
+        # and VTK must not have been started by an off-tab edit.
         assert window.last_div_steps is None
+        assert window.input_panel.is_valid()
+        assert window.btn_divergence.isEnabled()
+        assert not window.visualization_panel._vtk_initialized
         window.close()
         window.deleteLater()
         qapp.processEvents()
@@ -465,4 +488,140 @@ class TestSessionLoad:
         assert "999" not in window.results_panel.results_text.toPlainText()
         window.close()
         window.deleteLater()
+        qapp.processEvents()
+
+
+class TestThemeColours:
+    @staticmethod
+    def _contrast(a, b):
+        def luminance(hex_colour):
+            channels = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            channels = [
+                c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels
+            ]
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+        high, low = sorted((luminance(a), luminance(b)), reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    def test_palette_text_meets_wcag_aa(self):
+        from src.ui.themes import PALETTES
+
+        backgrounds = {"dark": ("#1e1e1e", "#252526"), "light": ("#f3f3f3", "#ffffff")}
+        for theme, palette in PALETTES.items():
+            for role in ("error", "success", "warning", "muted", "accent"):
+                for background in backgrounds[theme]:
+                    assert self._contrast(palette[role], background) >= 4.5, (theme, role)
+            assert self._contrast(palette["plot_foreground"], palette["plot_background"]) >= 4.5
+
+    def test_results_follow_theme_and_pdf_uses_light_accent(self, qapp, radial_field):
+        from src.ui.themes import PALETTES
+
+        window = VectorMachineWindow()
+        window.results_panel.display_divergence(compute_divergence(*radial_field))
+        dark, light = PALETTES["dark"]["accent"], PALETTES["light"]["accent"]
+
+        window.apply_theme("dark")
+        assert dark in window.results_panel.results_text.toHtml()
+        window.apply_theme("light")
+        assert light in window.results_panel.results_text.toHtml()
+        window.apply_theme("dark")
+        # Exported PDFs are white pages, whatever the on-screen theme.
+        exported = window.results_panel.export_html()
+        assert light in exported and dark not in exported
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_no_inline_colours_on_input_labels(self, qapp):
+        panel = InputPanel()
+        panel.set_texts("x", "y", "z")
+        assert panel.preview_label.property("state") == "valid"
+        panel.set_texts("x +", "y", "z")
+        assert panel.preview_label.property("state") == "invalid"
+        for label in (panel.preview_label, panel.p_error, panel.q_error, panel.r_error):
+            assert label.styleSheet() == ""
+        panel.deleteLater()
+        qapp.processEvents()
+
+    def test_plot_calls_match_pyvista_api(self, qapp):
+        # An autospec plotter rejects calls that don't match PyVista's real
+        # signatures (e.g. ``show_axes`` takes no colour argument).
+        from unittest.mock import create_autospec
+
+        import numpy as np
+        import pyvista as pv
+
+        from src.ui.themes import PALETTES
+
+        panel = VisualizationPanel()
+        panel.plotter = create_autospec(pv.Plotter, instance=True)
+        panel._vtk_initialized = True
+        panel.apply_palette(PALETTES["light"])
+        panel.plotter.set_background.assert_called_with(PALETTES["light"]["plot_background"])
+
+        points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        vectors = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        panel._on_visualization_ready(
+            panel._viz_revision, points, vectors, np.array([1.0, 1.0]), True, 1.0, 0.0
+        )
+        panel._on_visualization_ready(
+            panel._viz_revision, np.empty((0, 3)), np.empty((0, 3)), np.empty(0), True, 1.0, 0.0
+        )
+        panel.clear_plot()
+        assert panel.plotter.add_mesh.called and panel.plotter.add_text.called
+        panel.deleteLater()
+        qapp.processEvents()
+
+
+class TestVtkInitRetry:
+    """The 3D view can be retried after a failed start (e.g. no OpenGL)."""
+
+    @staticmethod
+    def _fake_pyvistaqt(monkeypatch, fail):
+        import sys
+        import types
+
+        from PySide6.QtWidgets import QWidget
+
+        class FakeInteractor(QWidget):
+            def __init__(self, parent=None):
+                if fail:
+                    raise RuntimeError("no OpenGL context")
+                super().__init__(parent)
+                self.background = None
+
+            def set_background(self, colour):
+                self.background = colour
+
+            def add_axes(self, **kwargs):
+                pass
+
+        module = types.ModuleType("pyvistaqt")
+        module.QtInteractor = FakeInteractor
+        monkeypatch.setitem(sys.modules, "pyvistaqt", module)
+
+    def test_failure_is_visible_and_retry_recovers(self, qapp, monkeypatch):
+        panel = VisualizationPanel()
+
+        self._fake_pyvistaqt(monkeypatch, fail=True)
+        assert panel.ensure_vtk_initialized() is False
+        # The message used to be set on a label that had already been hidden.
+        assert not panel._plot_placeholder.isHidden()
+        assert "no OpenGL context" in panel._plot_placeholder.text()
+        assert not panel._retry_button.isHidden()
+        assert panel.ensure_vtk_initialized() is False  # no silent retry loop
+
+        self._fake_pyvistaqt(monkeypatch, fail=False)
+        scheduled = []
+        panel.schedule_plot_update = lambda source="unknown": scheduled.append(source)
+        panel.p_expr, panel.q_expr, panel.r_expr = (
+            parse_expression(text)[0] for text in ("x", "y", "z")
+        )
+        panel._retry_button.click()
+
+        assert panel._vtk_initialized
+        assert panel._plot_placeholder.isHidden() and panel._retry_button.isHidden()
+        assert scheduled == ["retry"]
+        panel.deleteLater()
         qapp.processEvents()

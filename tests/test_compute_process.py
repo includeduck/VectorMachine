@@ -11,7 +11,7 @@ import pytest
 import src.ui.compute_worker as compute_worker
 from src.core.compute_process import ComputeCancelled, ComputeProcess, ComputeTimeout
 from src.ui.compute_worker import ComputeWorker
-from tests.slow_helpers import add, fail, slow_compute
+from tests.slow_helpers import add, crash, fail, slow_compute
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -75,6 +75,13 @@ class TestComputeProcess:
         assert outcome == ["cancelled"]
         assert not child.is_alive()
 
+    def test_crashed_child_is_an_error_not_a_cancel(self, process):
+        # A crash used to surface as ComputeCancelled, so the worker emitted
+        # nothing and the window stayed "computing" forever.
+        with pytest.raises(RuntimeError, match="stopped unexpectedly"):
+            process.run(crash, (), timeout=30)
+        assert process.run(add, (2, 2), timeout=30) == 4
+
     def test_cancel_for_another_job_is_ignored(self, process):
         process.cancel(object())
         assert process.run(add, (4, 4), timeout=30) == 8
@@ -128,3 +135,45 @@ class TestComputeWorkerStopsWork:
         assert result.returncode == 0, result.stderr
         assert "timed out" in result.stdout
         assert time.monotonic() - started < 30
+
+
+class TestWindowRecoversFromEngineFailures:
+    def _wait_idle(self, qapp, window, timeout=20):
+        deadline = time.monotonic() + timeout
+        while window._compute_in_progress and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+
+    def test_engine_crash_shows_error_and_unlocks(self, qapp, monkeypatch):
+        import src.ui.app_window as app_window
+        from src.ui.app_window import VectorMachineWindow
+
+        monkeypatch.setitem(compute_worker._COMPUTATIONS, "divergence", crash)
+        errors = []
+        monkeypatch.setattr(app_window.QMessageBox, "critical", lambda *a: errors.append(a[2]))
+        window = VectorMachineWindow()
+        window.load_example("x", "y", "z")
+        window.on_compute_divergence()
+        self._wait_idle(qapp, window)
+
+        assert not window._compute_in_progress
+        assert window.btn_divergence.isEnabled()
+        assert errors and "stopped unexpectedly" in errors[0]
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_worker_exiting_silently_does_not_lock_the_ui(self, qapp, monkeypatch):
+        from src.ui.app_window import VectorMachineWindow
+
+        monkeypatch.setattr(ComputeWorker, "run", lambda self: None)
+        window = VectorMachineWindow()
+        window.load_example("x", "y", "z")
+        window.on_compute_divergence()
+        self._wait_idle(qapp, window, timeout=5)
+
+        assert not window._compute_in_progress
+        assert window.btn_divergence.isEnabled()
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()

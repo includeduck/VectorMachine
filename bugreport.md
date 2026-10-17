@@ -3,6 +3,7 @@
 **Date:** 2026-10-17
 **Branch analysed:** `Fix` @ `3fd02df`
 **Scope:** All of `src/`, `tests/`, `test_debug.py`, `.github/workflows/ci.yml`, requirements and docs.
+**Status:** All 18 items are fixed. Items 1–5 were merged in PR #1, 6–8 in #2, 9–12 in #3, and 13–18 are in the follow-up cleanup PR. The one open piece is a Matplotlib fallback renderer (item 17). Each item below keeps its original findings, followed by a **Resolution**.
 
 ## How this was checked
 
@@ -29,12 +30,12 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 10 | Medium | Visualization | Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) | **Fixed** |
 | 11 | Medium | Visualization | Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component | **Fixed** |
 | 12 | Medium | Concurrency | Visualization workers pile up and share an unlocked `OrderedDict` cache | **Fixed** |
-| 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | Confirmed |
-| 14 | Low | Theming | Hard-coded colours ignore the dark theme | Code review |
-| 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | Confirmed |
-| 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | Code review |
-| 17 | Low | Visualization | A VTK init failure is permanent for the whole session | Code review |
-| 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | Confirmed |
+| 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | **Fixed** |
+| 14 | Low | Theming | Hard-coded colours ignore the dark theme | **Fixed** |
+| 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | **Fixed** |
+| 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | **Fixed** |
+| 17 | Low | Visualization | A VTK init failure is permanent for the whole session | **Fixed** (retry; no fallback renderer) |
+| 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | **Fixed** |
 
 ---
 
@@ -135,6 +136,8 @@ The window also has no `closeEvent` that cancels or waits for `ComputeWorker` an
 
 **Resolution:** SymPy now runs in a long-lived child process (`src/core/compute_process.py`), which is killed on timeout or cancel and replaced on the next request. The app pre-spawns it at startup, so the first computation starts warm. `VectorMachineWindow.closeEvent` cancels compute and visualization workers and waits for them, with a bounded wait. Regression tests cover timeout, cancel, closing the window during a computation, and exit not being delayed.
 
+**Follow-up:** the first version reported a child that died on its own (rather than being cancelled) as a cancel. The worker then emitted nothing, and the window stayed stuck at "computing". Crashes now come back as an error, and a start-up failure explains the `if __name__ == "__main__":` requirement for embedding scripts. The window also resets if a worker ever exits without reporting.
+
 ## 7. The panel shows only the latest result, so PDF and TXT/MD exports disagree — Medium — **Fixed**
 
 **Where:** [results_panel.py:385-389](src/ui/results_panel.py:385), [app_window.py:369-374](src/ui/app_window.py:369)
@@ -205,37 +208,47 @@ The session format also has no `version` field.
 
 **Resolution:** `_get_lambdified` holds a lock, including while compiling, so concurrent requests for the same field compile it once. The panel runs at most one visualization worker. A request made while one is evaluating drops that worker's result and replots with the latest settings once it exits.
 
-## 13. At startup all three fields show the red error "Expression cannot be empty." — Low
+## 13. At startup all three fields show the red error "Expression cannot be empty." — Low — **Fixed**
 
 **Where:** [input_panel.py:419](src/ui/input_panel.py:419), [input_panel.py:497-499](src/ui/input_panel.py:497)
 
 `do_validate_inputs()` runs in `__init__`, so a fresh window opens with three red error labels. The same happens after **Clear**. Empty fields should show no error, only a disabled Compute button.
 
-## 14. Hard-coded colours ignore the dark theme — Low
+**Resolution:** empty or blank fields no longer show an error; they only keep Compute disabled. An all-empty form shows the neutral preview `F = <_, _, _>`.
+
+## 14. Hard-coded colours ignore the dark theme — Low — **Fixed**
 
 **Where:** [results_panel.py:410](src/ui/results_panel.py:410), [results_panel.py:424](src/ui/results_panel.py:424) (`color:blue`); [input_panel.py:430-511](src/ui/input_panel.py:430) (`red`, `green`, `#b36b00`); [visualization_panel.py:89](src/ui/visualization_panel.py:89) (`#666`); [visualization_panel.py:132](src/ui/visualization_panel.py:132) (white plot background)
 
 Dark is the default theme. Pure blue on `#252526` has a contrast of about 2.4:1, which fails WCAG AA, and the white VTK viewport is jarring in dark mode. Take these colours from the theme module.
 
-## 15. Scientific notation (`1e3`) is rejected as "Unsupported name: e3" — Low
+**Resolution:** `themes.py` now defines a palette per theme (error, success, warning, muted, accent, plot background and foreground). Every text colour meets WCAG AA (≥ 4.5:1) against its backgrounds, and a test enforces it; the old blue measured 1.78:1 on the dark editor. Labels take their colour from theme QSS through object names and a `state` property instead of inline styles. Results re-render in the theme's accent when the theme changes. The 3D viewport, axis labels, scalar bar and overlay text follow the theme. PDF export always uses the light palette, because it's a white page.
+
+## 15. Scientific notation (`1e3`) is rejected as "Unsupported name: e3" — Low — **Fixed**
 
 **Where:** [computation.py:81-87](src/core/computation.py:81)
 
 The identifier regex matches the `e3` in `1e3`. Either strip numeric literals before scanning for identifiers, or document that scientific notation isn't supported.
 
-## 16. `_lazy_init()` is not thread-safe (latent) — Low
+**Resolution:** numeric literals, including scientific notation, are now removed before the identifier scan. `1e3`, `2.5e-3`, `.5e1` and `1e3*x` all parse, while `2e`, `e3` and `x1e3` are still rejected as unsupported names.
+
+## 16. `_lazy_init()` is not thread-safe (latent) — Low — **Fixed**
 
 **Where:** [computation.py:29-44](src/core/computation.py:29)
 
 The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z` and `local_dict` (lines 44-45). A second thread that sees `sp is not None` returns early and uses `x = None`. This can't happen in the app today, because the first non-empty parse always runs on the GUI thread before any worker exists. It would break library or CLI use with threads. Assign `sp` last, or guard the function with a lock.
 
-## 17. A VTK init failure is permanent for the whole session — Low
+**Resolution:** both. Initialisation runs under a lock with a double-checked fast path and publishes `sp` last. A regression test reproduces the race in a fresh interpreter: on the old code, every thread arriving mid-initialisation failed with `'NoneType' object has no attribute 'copy'`.
+
+## 17. A VTK init failure is permanent for the whole session — Low — **Fixed**
 
 **Where:** [visualization_panel.py:121-147](src/ui/visualization_panel.py:121)
 
 `_vtk_initialization_failed` is set once and is never retried. There is no fallback renderer such as Matplotlib quiver, even though Matplotlib is already in `requirements.txt`. This was already listed in `Weakness.md` and is still open.
 
-## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low
+**Resolution:** a failed start now shows the error with a hint (OpenGL unavailable: drivers, remote desktop, VM) and a **Retry 3D view** button that clears the failure and tries again, replotting on success. This also fixed a related bug: the placeholder used to be hidden *before* the viewport was created, so the failure message was set on an invisible label and the tab just looked blank. Any partly created viewport is removed. **Not done:** a Matplotlib fallback renderer for machines with no OpenGL at all.
+
+## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low — **Fixed**
 
 - Twelve tracked `desktop.ini` files. Their deletion is the uncommitted work on `Fix` (see below).
 - Seven tracked `__pycache__/*.cpython-314.pyc` files, although `.gitignore` already excludes `*.pyc`.
@@ -244,6 +257,15 @@ The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z`
 - `requirements.txt` is a full `pip freeze` that includes packages the app doesn't use (`cyclopts`, `rich`, `rich-rst`, `requests`, `markdown-it-py`, …).
 - README: the clone URL is a placeholder (`yourusername`), and the "Step-by-Step Derivations" claim is overstated (Weakness §3.4).
 - `doc/Progress.md` says repository hygiene is done, but the items above are still open.
+
+**Resolution:**
+
+- `desktop.ini` and the `.pyc` files were untracked earlier, in commit `da1ec50`.
+- `src/test_pv.py` is deleted.
+- `test_debug.py` is retired: everything it checked was already in `tests/`, and its one unique assertion moved there. CI no longer runs it.
+- **Correction to this report:** `requirements.txt` carries no unused packages. Every entry the report listed is a transitive dependency; for example, `cyclopts` comes in via `pyvista`, and `requests` via `pooch` and then `pyvista`. The file is kept as a full lock, now with the direct dependencies marked and each other pin naming what pulls it in.
+- The README now has the real clone URL, describes the worked steps accurately, and documents the input syntax.
+- `doc/Progress.md` summarises the audit fixes.
 
 ---
 
