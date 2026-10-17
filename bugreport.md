@@ -22,9 +22,9 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 3 | High | Visualization | Fields with `P = 0` never render | **Fixed** |
 | 4 | High | Compute UI | A stale worker signal clobbers the active computation, and its result is dropped | **Fixed** |
 | 5 | High | CI | Every Linux job and every Python 3.11 job fails, and the Windows install step hides pip errors | **Fixed** |
-| 6 | Medium | Compute worker | Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit | Confirmed |
-| 7 | Medium | Results / Export | The panel shows only the latest result, so PDF and TXT/MD exports disagree | Confirmed |
-| 8 | Medium | Visualization | Changing the scale slider with keyboard, wheel or a groove click never redraws | Confirmed |
+| 6 | Medium | Compute worker | Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit | **Fixed** |
+| 7 | Medium | Results / Export | The panel shows only the latest result, so PDF and TXT/MD exports disagree | **Fixed** |
+| 8 | Medium | Visualization | Changing the scale slider with keyboard, wheel or a groove click never redraws | **Fixed** |
 | 9 | Medium | Sessions | Loaded results are shown without checking they match the loaded field | Code review |
 | 10 | Medium | Visualization | Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) | Confirmed |
 | 11 | Medium | Visualization | Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component | Code review |
@@ -121,7 +121,7 @@ Only Windows / Python 3.12 is green.
 
 **Resolution:** the workflow now pins `ubuntu-24.04` / `windows-2025`, installs `libgl1` instead of the removed `libgl1-mesa-glx`, tests Python 3.12 and 3.14 (the pins need ≥ 3.12), runs every test step under `bash` so a failing command fails its step, and bumps the official actions to `v7` (Node 24). The README now says Python 3.12+. Verified by run `39053140611`: lint and all four test jobs passed, each running all 52 tests.
 
-## 6. Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit — Medium
+## 6. Timeout and cancel don't stop work: orphan threads burn CPU and hold up app exit — Medium — **Fixed**
 
 **Where:** [compute_worker.py:39-56](src/ui/compute_worker.py:39); no `closeEvent` in [app_window.py](src/ui/app_window.py)
 
@@ -133,7 +133,9 @@ The window also has no `closeEvent` that cancels or waits for `ComputeWorker` an
 
 **Fix:** run the SymPy call in a `multiprocessing` / `ProcessPoolExecutor` child that can be terminated, or at minimum use a daemon thread. Add a `closeEvent` that cancels both kinds of worker and calls `wait()` with a short bound.
 
-## 7. The panel shows only the latest result, so PDF and TXT/MD exports disagree — Medium
+**Resolution:** SymPy now runs in a long-lived child process (`src/core/compute_process.py`), which is killed on timeout or cancel and replaced on the next request. The app pre-spawns it at startup, so the first computation starts warm. `VectorMachineWindow.closeEvent` cancels compute and visualization workers and waits for them, with a bounded wait. Regression tests cover timeout, cancel, closing the window during a computation, and exit not being delayed.
+
+## 7. The panel shows only the latest result, so PDF and TXT/MD exports disagree — Medium — **Fixed**
 
 **Where:** [results_panel.py:385-389](src/ui/results_panel.py:385), [app_window.py:369-374](src/ui/app_window.py:369)
 
@@ -145,7 +147,9 @@ The window also has no `closeEvent` that cancels or waits for `ComputeWorker` an
 
 **Fix:** have the compute handlers call `display_results(self.last_div_steps, self.last_curl_steps)`, the same method session load already uses.
 
-## 8. Changing the scale slider with keyboard, wheel or a groove click never redraws — Medium
+**Resolution:** the compute handlers now call `display_results(self.last_div_steps, self.last_curl_steps)`.
+
+## 8. Changing the scale slider with keyboard, wheel or a groove click never redraws — Medium — **Fixed**
 
 **Where:** [visualization_panel.py:100](src/ui/visualization_panel.py:100)
 
@@ -154,6 +158,8 @@ Only `sliderReleased` is connected. Keyboard input (arrow keys, PageUp/PageDown)
 **Repro:** after `PageUp`, the slider value went from 20 to 30 and no redraw was scheduled. The README advertises keyboard accessibility.
 
 **Fix:** connect `valueChanged` as well; the 300 ms `plot_timer` debounce already absorbs drags. Alternatively, connect `valueChanged` only when `not slider.isSliderDown()`.
+
+**Resolution:** `valueChanged` now schedules a redraw unless the slider is being dragged; drags still redraw once, on `sliderReleased`.
 
 ## 9. Loaded results are shown without checking they match the loaded field — Medium
 

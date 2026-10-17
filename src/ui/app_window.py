@@ -1,3 +1,4 @@
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from src.core.compute_process import get_compute_process
 from src.core.debug_log import debug_log
 from src.core.export import export_markdown, export_pdf, export_text
 from src.core.session import load_session, save_session
@@ -40,6 +42,21 @@ class VectorMachineWindow(QMainWindow):
         self.setup_ui()
         self.create_menus()
         self.apply_theme(self._current_theme)
+        # Spawn the SymPy child process once the window is up, so the first
+        # computation does not pay its start-up cost.
+        QTimer.singleShot(0, get_compute_process().start)
+
+    def closeEvent(self, event):
+        worker = self._compute_worker
+        self._cancel_compute_worker()
+        self._compute_in_progress = False
+        try:
+            if worker is not None and isValid(worker):
+                worker.wait(2000)
+        except (RuntimeError, ReferenceError):
+            pass
+        self.visualization_panel.stop_workers()
+        super().closeEvent(event)
         
     def apply_theme(self, theme_name):
         self._current_theme = theme_name
@@ -282,10 +299,11 @@ class VectorMachineWindow(QMainWindow):
             return
         if compute_type == "divergence":
             self.last_div_steps = result
-            self.results_panel.display_divergence(result)
         else:
             self.last_curl_steps = result
-            self.results_panel.display_curl(result)
+        # Render everything computed for this field, not just the latest
+        # result: PDF/PNG export captures the panel, TXT/MD use both steps.
+        self.results_panel.display_results(self.last_div_steps, self.last_curl_steps)
         self.tab_widget.setCurrentWidget(self.results_panel)
 
     def _on_compute_error(self, compute_type, error_msg, worker=None):

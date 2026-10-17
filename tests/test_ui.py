@@ -3,12 +3,18 @@
 import time
 from unittest.mock import MagicMock
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+
+import src.ui.compute_worker as compute_worker
 from src.core.computation import compute_curl, compute_divergence, parse_expression
+from src.core.compute_process import get_compute_process
 from src.ui.app_window import VectorMachineWindow
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
 from src.ui.visualization_panel import VisualizationPanel
 from src.ui.visualization_worker import VisualizationWorker
+from tests.slow_helpers import slow_compute
 
 
 class TestInputPanel:
@@ -118,6 +124,19 @@ class TestVisualizationPanel:
         panel.deleteLater()
         qapp.processEvents()
 
+    def test_scale_slider_keyboard_change_redraws(self, qapp):
+        panel = VisualizationPanel()
+        panel.show()
+        scheduled = []
+        panel.schedule_plot_update = lambda source="unknown": scheduled.append(source)
+
+        panel.scale_slider.setFocus()
+        QTest.keyClick(panel.scale_slider, Qt.Key_PageUp)
+        assert panel.scale_slider.value() > 20
+        assert "scale" in scheduled
+        panel.deleteLater()
+        qapp.processEvents()
+
     def test_screenshot_export(self, qapp, tmp_dir):
         panel = VisualizationPanel()
         shot_path = tmp_dir / "viewport.png"
@@ -224,6 +243,43 @@ class TestVectorMachineWindow:
         assert window.last_div_steps is not None
         assert window.last_div_steps["final"] == "3"
         window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_panel_keeps_both_results_after_curl(self, qapp):
+        window = VectorMachineWindow()
+        window.load_example("x*y", "y*z", "z*x")
+        P, Q, R = window.input_panel.get_expressions()
+        for compute_type, func in (("divergence", compute_divergence), ("curl", compute_curl)):
+            window._active_compute_revision = window._input_revision
+            window._on_compute_finished(compute_type, func(P, Q, R))
+
+        # PDF/PNG export captures this panel, so it must match TXT/MD output.
+        text = window.results_panel.results_text.toPlainText()
+        assert "Divergence" in text
+        assert "Curl" in text
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_close_stops_running_computation(self, qapp, monkeypatch):
+        monkeypatch.setitem(compute_worker._COMPUTATIONS, "divergence", slow_compute)
+        process = get_compute_process()
+        window = VectorMachineWindow()
+        window.load_example("x", "y", "z")
+        window.on_compute_divergence()
+        worker = window._compute_worker
+        deadline = time.monotonic() + 15
+        while process._busy_job is not worker and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert process._busy_job is worker
+        child = process._process
+
+        started = time.monotonic()
+        window.close()
+        assert time.monotonic() - started < 5
+        assert not worker.isRunning()
+        assert not child.is_alive()
         window.deleteLater()
         qapp.processEvents()
 

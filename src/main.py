@@ -5,13 +5,15 @@ import time
 # Add the project root to sys.path so 'src' module can be found
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from PySide6.QtWidgets import QApplication
-
-from src.core.debug_log import debug_log
-from src.ui.app_window import VectorMachineWindow
-
 
 def main():
+    # Imported here, not at module level: the SymPy child process re-imports
+    # this module on spawn, and must not pull in Qt and the whole UI.
+    from PySide6.QtWidgets import QApplication
+
+    from src.core.debug_log import debug_log
+    from src.ui.app_window import VectorMachineWindow
+
     start_time = time.perf_counter()
     
     app = QApplication(sys.argv)
