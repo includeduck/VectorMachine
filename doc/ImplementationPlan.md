@@ -20,9 +20,9 @@ This plan covers the implementation of the core application flows described in `
 
 ### Layers
 - UI layer: PySide6 widgets and dialogs
-- Computation layer: SymPy parsing, differentiation, simplification, and result formatting
+- Computation layer: SymPy parsing, differentiation, simplification, and result formatting. Differentiation and simplification run in a separate, killable child process (`src/core/compute_process.py`).
 - Persistence layer: session serialization and file storage
-- Visualization layer: PyVista rendering and plot controls
+- Visualization layer: PyVista rendering and plot controls, with a Matplotlib fallback renderer when OpenGL is unavailable
 
 ### Core Components
 - Input Panel
@@ -35,7 +35,7 @@ This plan covers the implementation of the core application flows described in `
 - Controls
   - Compute Divergence
   - Compute Curl
-  - Cancel Computation (timeout and cooperative thread abort)
+  - Cancel Computation (the 10 s timeout and Cancel kill the SymPy child process)
   - Clear
   - Load Example
   - Save Session
@@ -49,6 +49,7 @@ This plan covers the implementation of the core application flows described in `
   - 3D arrow glyph mode
   - rotate, zoom, pan controls
   - density/scale/domain settings
+  - Matplotlib fallback view (2D/3D quiver) when VTK/OpenGL can't start, with a retry
 
 ## Implementation Tasks
 
@@ -85,7 +86,8 @@ This plan covers the implementation of the core application flows described in `
 - define session model: `P`, `Q`, `R`, `results`, `timestamp`
 - implement Save Session to file JSON or YAML
 - implement Open Session to restore state
-- restore UI and computed results after load
+- restore the inputs after load and recompute the saved results from them (saved result strings are not trusted)
+- version the session schema (`"version": 1`)
 - preserve timestamp and file metadata
 
 ### 6. Example Data
@@ -170,20 +172,20 @@ This plan covers the implementation of the core application flows described in `
 - application starts quickly and responds smoothly
 
 ## Dependencies
-- Python 3.x
+- Python 3.12+ (required by the pinned NumPy)
 - PySide6
 - SymPy
-- PyVista
+- PyVista (with VTK and pyvistaqt)
 - NumPy
-- Matplotlib (optional for 2D plots)
+- Matplotlib (the fallback renderer when OpenGL is unavailable)
 
 ## Risks and Mitigations
 - Parsing complex expressions: validate incrementally and report clear errors.
-- PyVista integration with PySide6: keep visualization panel optional and fallback to text output if initialization fails.
+- PyVista integration with PySide6: initialise lazily; if it fails, show the reason, fall back to the Matplotlib renderer and offer a retry.
 - Cross-platform differences: use standard Qt/PySide6 APIs and avoid platform-specific paths.
 - Export formatting: start with Markdown/plain text first, then add PDF/PNG once core exports work.
 
 ## Notes
 - The application should work offline and preserve user data locally.
-- The UI should remain responsive even during symbolic simplification by using lightweight operations and keeping computations on the main thread if they are fast; if needed, offload heavy work to a worker thread.
+- The UI must stay responsive during symbolic simplification. Computation runs in a child process that can be killed on timeout or cancel; field evaluation runs on a worker thread; and input parsing rejects numbers that would be too large to evaluate quickly.
 - The implementation should follow the use cases in `UseCase.md` closely, ensuring each UC is mapped to a clear application flow.

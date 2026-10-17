@@ -1,8 +1,32 @@
 # Technical Weakness Analysis & Architectural Critique: VectorMachine
 
-**Document Version:** 1.0  
-**Date:** September 2026  
+**Document Version:** 1.1  
+**Date:** September 2026 (status updated October 2026)  
 **Subject:** Codebase Architecture, Computational Engine, and System Vulnerabilities  
+
+---
+
+## Status (October 2026)
+
+Since this critique was written, the bug audit (`bugreport.md`, PRs #1 to #4) and the fallback-renderer PR have addressed most of it. The original analysis is kept below, and each heading now carries its status.
+
+| § | Finding | Status | How it was addressed / what remains |
+| :--- | :--- | :--- | :--- |
+| 1 | Synchronous 3D evaluation | **Resolved** | `VisualizationWorker` evaluates off the GUI thread, and at most one evaluation runs at a time. |
+| 1 | Irrecoverable VTK initialisation | **Resolved** | The failure is shown with its reason and a **Retry 3D view** button, and a Matplotlib renderer (`src/ui/mpl_fallback.py`) takes over. |
+| 1 | Blank PNG export | **Resolved** | Native `plotter.screenshot()`, or the fallback figure's `savefig`. |
+| 2.1 | God Object (`VectorMachineWindow`) | **Open** | The window still owns sessions, export, theming and compute orchestration. |
+| 2.2 | Qt in `src/core/export.py` | **Open** | PDF output still uses `QTextDocument`/`QPdfWriter`. |
+| 2.3 | Repository debris | **Resolved** | Removed `src/test_pv.py`, `.gitignore.txt`, `desktop.ini` and the tracked `.pyc` files, and retired `test_debug.py`. |
+| 3.1 | SymPy denial of service | **Resolved** | SymPy runs in a killable child process, and numbers over 1000 digits are rejected before evaluation. |
+| 3.2 | Uncancellable threads | **Resolved** | Timeout and Cancel kill the child process; crashes surface as errors. |
+| 3.3 | Singularities and arrow scaling | **Partly resolved** | Arrows are scaled to the grid against a robust (95th-percentile) maximum. There is still no warning near poles and no adaptive sampling. |
+| 3.4 | "Step-by-step" claims | **Open** | The README wording is corrected, but differentiation rules are still not shown. |
+| 3.5 | Cartesian coordinates only | **Open** | |
+| 4.1 | Unversioned session schema | **Resolved** | Sessions carry `"version": 1`; newer or malformed versions are rejected. |
+| 4.2 | Derived results trusted on load | **Resolved** | Loaded sessions recompute their results from the saved inputs. |
+| 4.3 | ASCII math formatting | **Open** | Colours are now theme-aware and WCAG AA, but there is no LaTeX/MathML typesetting. |
+| 5 | Testing and QA gaps | **Mostly resolved** | See the update under §5. Fuzzing is still missing. |
 
 ---
 
@@ -16,7 +40,7 @@ This document outlines the key weaknesses, identifies the project's critical **A
 
 ---
 
-## 1. The Achilles Heel: Synchronous 3D Field Evaluation & PyVista/OpenGL Fragility
+## 1. The Achilles Heel: Synchronous 3D Field Evaluation & PyVista/OpenGL Fragility `[RESOLVED]`
 
 If there is a single point of failure capable of catastrophically destabilizing the application or ruining the user experience, it is **the visualization pipeline's main-thread execution and unisolated C++/OpenGL bindings**.
 
@@ -52,7 +76,7 @@ If there is a single point of failure capable of catastrophically destabilizing 
 
 Topological analysis of the codebase knowledge graph revealed critical structural anomalies:
 
-### 2.1. The Monolithic God Object (`VectorMachineWindow`)
+### 2.1. The Monolithic God Object (`VectorMachineWindow`) `[OPEN]`
 - **Topological Metric:** Betweenness Centrality of **0.149**, degree **28** (highest in the codebase by far).
 - `VectorMachineWindow` acts as a central bottleneck bridging almost every independent subsystem:
   - Layout & Widget Management (`InputPanel`, `ResultsPanel`, `VisualizationPanel`)
@@ -75,7 +99,7 @@ Topological analysis of the codebase knowledge graph revealed critical structura
  VizPanel)    session)        Worker)     pdf, png)      qss)
 ```
 
-### 2.2. Architectural Layer Boundary Leaks (`src/core/export.py`)
+### 2.2. Architectural Layer Boundary Leaks (`src/core/export.py`) `[OPEN]`
 - The project documentation (`ImplementationPlan.md`) claims a clean four-layer architecture:
   1. UI Layer (`src/ui/`)
   2. Computation Layer (`src/core/computation.py`)
@@ -88,7 +112,7 @@ Topological analysis of the codebase knowledge graph revealed critical structura
   ```
 - Because `export.py` resides under `src/core/`, core services should be 100% headless. Relying on `PySide6.QtPrintSupport` means PDF generation cannot run in headless CI environments or CLI utilities without spinning up an offscreen Qt platform plugin.
 
-### 2.3. Residual Spikes and Workspace Debris
+### 2.3. Residual Spikes and Workspace Debris `[RESOLVED]`
 - `src/test_pv.py`: An obsolete, throwaway debugging spike experimenting with `QVTKRenderWindowInteractor` was committed directly into the production `src/` directory.
 - `desktop.ini` and duplicate `.gitignore.txt`: Artifact files committed across subdirectories clutter the repository.
 - `test_debug.py` resides in the project root rather than a standard `tests/` hierarchy.
@@ -97,7 +121,7 @@ Topological analysis of the codebase knowledge graph revealed critical structura
 
 ## 3. Computational & Mathematical Vulnerabilities
 
-### 3.1. SymPy Denial of Service (Algorithmic Complexity & Hangs)
+### 3.1. SymPy Denial of Service (Algorithmic Complexity & Hangs) `[RESOLVED]`
 - In `src/core/computation.py`:
   ```python
   div_expr = sp.simplify(unsimplified)
@@ -106,12 +130,12 @@ Topological analysis of the codebase knowledge graph revealed critical structura
 - SymPy’s `simplify()` is a heuristic driver that attempts dozens of algebraic, trigonometric, and rational transformations. On nested trigonometric functions, rational polynomials, or expressions with non-trivial cancellations, `simplify()` can run with exponential complexity ($O(2^n)$ or worse).
 - **No Timeout:** There is no execution timeout on differentiation or simplification. If a student inputs a pathological expression, the worker thread hangs permanently.
 
-### 3.2. Uncancellable Background Threads
+### 3.2. Uncancellable Background Threads `[RESOLVED]`
 - `ComputeWorker` subclasses `QThread` and executes `run()`.
 - While `VectorMachineWindow` properly discards results from stale revisions (`_input_revision`), the underlying thread **cannot be interrupted or killed**.
 - If a computation enters an infinite or hyper-complex loop inside SymPy, that thread consumes 100% of a CPU core indefinitely. Because `_compute_in_progress` is set until completion, the user is locked out from running any new divergence or curl calculations until restarting the app.
 
-### 3.3. Numerical Singularities, Poles, and Grid Sampling
+### 3.3. Numerical Singularities, Poles, and Grid Sampling `[PARTLY RESOLVED]`
 - In `evaluate_field()`:
   ```python
   with np.errstate(all="ignore"):
@@ -122,7 +146,7 @@ Topological analysis of the codebase knowledge graph revealed critical structura
   - If a singularity occurs, large adjacent values can distort the color scalar map and arrow glyph normalization, causing arrows to blow up across the screen or collapse to near-zero size elsewhere.
   - The application lacks adaptive sampling near poles or visual warnings informing students why field lines disappear around $x=0$.
 
-### 3.4. Pedagogical Limitation: "Step-by-Step" Derivation is an Illusion
+### 3.4. Pedagogical Limitation: "Step-by-Step" Derivation is an Illusion `[OPEN]`
 - The application claims in `README.md` and `UseCase.md` (UC-09) to provide "Step-by-Step Derivations".
 - In reality, `compute_divergence()` and `compute_curl()` only produce:
   1. The general formula definition
@@ -131,7 +155,7 @@ Topological analysis of the codebase knowledge graph revealed critical structura
   4. The fully simplified answer
 - **What is missing:** It does not show *how* the derivative was obtained (e.g., Product Rule, Chain Rule, Quotient Rule), nor does it show intermediate factoring or common denominator steps. For educational software, it acts as a symbolic calculator rather than an instructional tutor.
 
-### 3.5. Rigid Coordinate System (Cartesian Only)
+### 3.5. Rigid Coordinate System (Cartesian Only) `[OPEN]`
 - The vector calculus domain is strictly constrained to Cartesian coordinates $\langle x, y, z \rangle$.
 - In undergraduate physics and vector calculus, over 50% of real-world problems (Gauss's Law, Ampere's Law, vortex dynamics, fluid flow around cylinders) require **Cylindrical** $(r, \theta, z)$ or **Spherical** $(\rho, \theta, \phi)$ coordinates. VectorMachine cannot handle these systems.
 
@@ -139,24 +163,24 @@ Topological analysis of the codebase knowledge graph revealed critical structura
 
 ## 4. Reliability, State & Persistence Weaknesses
 
-### 4.1. Unversioned Session Schema
+### 4.1. Unversioned Session Schema `[RESOLVED]`
 - In `src/core/session.py`:
   - Sessions serialize raw text, pre-rendered string dictionaries, and timestamps to JSON.
   - There is **no schema version field** (e.g., `"version": "1.0"`).
   - Validation requires exact key sets (`_DIVERGENCE_KEYS`, `_CURL_KEYS`). If future versions alter step representations (e.g., adding LaTeX syntax or rule metadata), all existing user session files will fail validation and be rejected as corrupted.
 
-### 4.2. Serialization of Derivative Results Instead of Pure State
+### 4.2. Serialization of Derivative Results Instead of Pure State `[RESOLVED]`
 - The session saves intermediate string computations (`results.divergence` and `results.curl`).
 - Saving derived results rather than pure inputs ($P, Q, R$) violates normalization principles. If a session file is manually edited with bogus mathematical results, loading it displays those fraudulent results directly in the UI without verification.
 
-### 4.3. Raw ASCII / HTML Math Formatting
+### 4.3. Raw ASCII / HTML Math Formatting `[OPEN]`
 - `ResultsPanel` renders equations using basic HTML and Monospace Courier fonts (e.g., `&part;P/&part;x = 2*x*y`).
 - SymPy natively supports rich MathML and LaTeX generation (`sp.latex()`).
 - Displaying raw ASCII polynomials without proper mathematical typography makes complex vector formulas difficult to parse for students.
 
 ---
 
-## 5. Testing & Quality Assurance Gaps
+## 5. Testing & Quality Assurance Gaps `[MOSTLY RESOLVED]`
 
 | Area | Current Status | Vulnerability / Gap |
 | :--- | :--- | :--- |
@@ -165,6 +189,16 @@ Topological analysis of the codebase knowledge graph revealed critical structura
 | **UI Integration** | 2 simulated headless events | No systematic automated UI interaction testing (QTest for sliders, menus, shortcuts). |
 | **3D Rendering** | Untested in automated test suite | `VisualizationPanel` and PyVista rendering are skipped in headless tests (`QT_QPA_PLATFORM=offscreen`). |
 | **Extreme Math Inputs** | Minimal | No fuzz testing with deeply nested expressions, large exponents ($x^{1000}$), or complex branch cuts. |
+
+**Update (October 2026):**
+
+- There is a pytest suite (`tests/`, 97 tests) with shared fixtures.
+- GitHub Actions runs ruff and the suite on Ubuntu 24.04 and Windows 2025 with Python 3.12 and 3.14.
+- UI tests drive widgets with QTest, covering the sliders and the keyboard.
+- Plot calls are checked against an autospec'd `pv.Plotter`.
+- The Matplotlib fallback is rendered and exported in tests.
+- Hostile inputs (`9**9**9`, `(10**8)!`) run in a subprocess with a timeout, so a regression fails instead of hanging.
+- Still missing: systematic fuzzing.
 
 ---
 
@@ -197,6 +231,7 @@ To transition VectorMachine from a student prototype to a resilient, production-
    - Implemented `export_screenshot()` on `VisualizationPanel` via PyVista's native `plotter.screenshot(file_path)` to eliminate blank/corrupted PNG captures.
 3. **Computation Timeout & Cancellation:** `[RESOLVED]`
    - Added 10-second timeout guard to `ComputeWorker` via `ThreadPoolExecutor` and user-facing "Cancel Computation" button in `VectorMachineWindow`.
+   - *Superseded:* the thread-based timeout couldn't stop SymPy, and exit waited for it. The work now runs in a killable child process (`src/core/compute_process.py`).
 
 ### Phase 2: Architectural Decoupling & Cleanliness
 1. **Break Down the God Object:**

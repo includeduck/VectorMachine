@@ -36,8 +36,9 @@ Main Flow:
    F = <P,Q,R>
 
 Extensions:
-- Empty field -> highlight missing component.
+- Empty field -> computing stays disabled until all three components are filled; an empty field is not shown as an error.
 - Invalid syntax -> show error with location.
+- Oversized number (e.g. `9**9**9`) -> rejected with an error instead of being evaluated.
 
 ---
 
@@ -109,6 +110,11 @@ Saved:
 Goal:
 Restore a saved session.
 
+Notes:
+- The saved field is restored, and any saved results are recomputed from it rather than trusted from the file.
+- If the saved field no longer parses, its results are not restored and the user is told why.
+- Sessions saved by a newer version are rejected with a clear message.
+
 ---
 
 # UC-09 View Step-by-Step Solution
@@ -136,6 +142,9 @@ Options:
 - Arrow density
 - Scale
 - Domain
+
+Alternative Flow:
+- 3D renderer (OpenGL) unavailable -> show the reason, switch to a Matplotlib view (2D or 3D quiver) and offer "Retry 3D view".
 
 ---
 
@@ -217,7 +226,7 @@ Tabs
 
 GUI: PySide6
 Math Engine: SymPy
-Visualization: PyVista + Matplotlib
+Visualization: PyVista (hardware rendering) + Matplotlib (fallback renderer)
 Packaging: PyInstaller
 Testing: pytest
 
