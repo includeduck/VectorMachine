@@ -13,7 +13,7 @@ Since this critique was written, the bug audit (`bugreport.md`, PRs #1 to #4) an
 | § | Finding | Status | How it was addressed / what remains |
 | :--- | :--- | :--- | :--- |
 | 1 | Synchronous 3D evaluation | **Resolved** | `VisualizationWorker` evaluates off the GUI thread, and at most one evaluation runs at a time. |
-| 1 | Irrecoverable VTK initialisation | **Resolved** | The failure is shown with its reason and a **Retry 3D view** button, and a Matplotlib renderer (`src/ui/mpl_fallback.py`) takes over. |
+| 1 | Irrecoverable VTK initialisation | **Resolved** | The failure is shown with its reason and a **Retry 3D view** button, and a Matplotlib renderer (`src/ui/mpl_fallback.py`) takes over. A crash-isolated OpenGL check (`src/ui/vtk_probe.py`) runs first, because VTK segfaults rather than raising when it can't get a pixel format. |
 | 1 | Blank PNG export | **Resolved** | Native `plotter.screenshot()`, or the fallback figure's `savefig`. |
 | 2.1 | God Object (`VectorMachineWindow`) | **Resolved** | Compute orchestration, sessions, export and theming moved into `ComputeController`, `SessionController`, `ExportController` and `ThemeManager`. The window (446 → 264 lines) keeps the layout, menus, dialogs and wiring. |
 | 2.2 | Qt in `src/core/export.py` | **Resolved** | PDF rendering moved to `src/ui/pdf_export.py` and `QSettings` preferences to `src/ui/settings.py`. A test asserts that importing and using `src/core` loads no PySide6. |
