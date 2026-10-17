@@ -255,3 +255,42 @@ class TestScientificNotation:
             expr, err = parse_expression(text)
             assert expr is None, text
             assert "Unsupported name" in err
+
+
+class TestLazyInitThreadSafety:
+    def test_concurrent_first_use_sees_a_complete_module(self):
+        # Fresh interpreter, so the module is uninitialised.  ``symbols`` is
+        # slowed down to widen the window in which the old code had already
+        # published ``sp`` but not yet ``x``/``y``/``z``/``local_dict``.
+        script = (
+            "import threading, time\n"
+            "import sympy\n"
+            "real_symbols = sympy.symbols\n"
+            "def slow_symbols(*args, **kwargs):\n"
+            "    time.sleep(0.3)\n"
+            "    return real_symbols(*args, **kwargs)\n"
+            "sympy.symbols = slow_symbols\n"
+            "from src.core.computation import parse_expression\n"
+            "errors = []\n"
+            "def parse():\n"
+            "    expr, err = parse_expression('x*y + z')\n"
+            "    if err or str(expr) != 'x*y + z':\n"
+            "        errors.append(err)\n"
+            "first = threading.Thread(target=parse)\n"
+            "first.start()\n"
+            # Latecomers arrive while the first thread is mid-initialisation.
+            "time.sleep(0.1)\n"
+            "late = [threading.Thread(target=parse) for _ in range(7)]\n"
+            "[t.start() for t in late]\n"
+            "[t.join() for t in [first, *late]]\n"
+            "print('errors:', errors)\n"
+            "assert not errors\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr

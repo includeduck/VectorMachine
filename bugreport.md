@@ -32,7 +32,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | **Fixed** |
 | 14 | Low | Theming | Hard-coded colours ignore the dark theme | **Fixed** |
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | **Fixed** |
-| 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | Code review |
+| 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | **Fixed** |
 | 17 | Low | Visualization | A VTK init failure is permanent for the whole session | Code review |
 | 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | Confirmed |
 
@@ -231,11 +231,13 @@ The identifier regex matches the `e3` in `1e3`. Either strip numeric literals be
 
 **Resolution:** numeric literals, including scientific notation, are now removed before the identifier scan. `1e3`, `2.5e-3`, `.5e1` and `1e3*x` all parse, while `2e`, `e3` and `x1e3` are still rejected as unsupported names.
 
-## 16. `_lazy_init()` is not thread-safe (latent) — Low
+## 16. `_lazy_init()` is not thread-safe (latent) — Low — **Fixed**
 
 **Where:** [computation.py:29-44](src/core/computation.py:29)
 
 The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z` and `local_dict` (lines 44-45). A second thread that sees `sp is not None` returns early and uses `x = None`. This can't happen in the app today, because the first non-empty parse always runs on the GUI thread before any worker exists. It would break library or CLI use with threads. Assign `sp` last, or guard the function with a lock.
+
+**Resolution:** both. Initialisation runs under a lock with a double-checked fast path and publishes `sp` last. A regression test reproduces the race in a fresh interpreter: on the old code, every thread arriving mid-initialisation failed with `'NoneType' object has no attribute 'copy'`.
 
 ## 17. A VTK init failure is permanent for the whole session — Low
 

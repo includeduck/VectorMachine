@@ -19,6 +19,7 @@ _lambdify_cache = OrderedDict()
 _LAMBDA_CACHE_LIMIT = 128
 # Visualization workers call ``_get_lambdified`` from their own threads.
 _lambdify_lock = threading.Lock()
+_init_lock = threading.Lock()
 
 _SUPPORTED_IDENTIFIERS = frozenset({
     "x", "y", "z", "E", "pi",
@@ -46,56 +47,61 @@ class _NumberTooLarge(Exception):
 def _lazy_init():
     global sp, parse_expr, standard_transformations, implicit_multiplication_application, np
     global convert_xor, mpmath, x, y, z, local_dict, _safe_global_dict, _guard_global_dict
-    
+
+    # ``sp`` is published last, so seeing it set means everything else is.
     if sp is not None:
         return
-        
-    import mpmath as _mpmath
-    import numpy as _np
-    import sympy as _sp
-    from sympy.parsing.sympy_parser import convert_xor as _cx
-    from sympy.parsing.sympy_parser import implicit_multiplication_application as _ima
-    from sympy.parsing.sympy_parser import parse_expr as _pe
-    from sympy.parsing.sympy_parser import standard_transformations as _st
-    
-    sp = _sp
-    parse_expr = _pe
-    standard_transformations = _st
-    implicit_multiplication_application = _ima
-    convert_xor = _cx
-    np = _np
-    mpmath = _mpmath
-    
-    x, y, z = sp.symbols('x y z')
-    local_dict = {
-        'x': x, 'y': y, 'z': z,
-        'E': sp.E, 'pi': sp.pi,
-        'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan,
-        'asin': sp.asin, 'acos': sp.acos, 'atan': sp.atan, 'atan2': sp.atan2,
-        'sinh': sp.sinh, 'cosh': sp.cosh, 'tanh': sp.tanh,
-        'asinh': sp.asinh, 'acosh': sp.acosh, 'atanh': sp.atanh,
-        'exp': sp.exp, 'sqrt': sp.sqrt, 'log': sp.log, 'ln': sp.log,
-        'Abs': sp.Abs, 'sign': sp.sign, 'floor': sp.floor, 'ceiling': sp.ceiling,
-    }
-    # ``parse_expr`` ultimately evaluates generated Python code.  Keep its
-    # execution namespace deliberately small and free of builtins.
-    _safe_global_dict = {
-        '__builtins__': {},
-        'Integer': sp.Integer,
-        'Float': sp.Float,
-        'Rational': sp.Rational,
-        'factorial': sp.factorial,
-    }
-    # Namespace for the unevaluated pre-parse used by ``_check_number_sizes``.
-    # ``parse_expr(evaluate=False)`` emits explicit Add/Mul/Pow calls, and the
-    # ``n!`` notation is not covered by it, so factorial must stay unevaluated.
-    _guard_global_dict = dict(
-        _safe_global_dict,
-        Add=sp.Add,
-        Mul=sp.Mul,
-        Pow=sp.Pow,
-        factorial=lambda arg: sp.factorial(arg, evaluate=False),
-    )
+
+    with _init_lock:
+        if sp is not None:
+            return
+
+        import mpmath as _mpmath
+        import numpy as _np
+        import sympy as _sp
+        from sympy.parsing.sympy_parser import convert_xor as _cx
+        from sympy.parsing.sympy_parser import implicit_multiplication_application as _ima
+        from sympy.parsing.sympy_parser import parse_expr as _pe
+        from sympy.parsing.sympy_parser import standard_transformations as _st
+
+        parse_expr = _pe
+        standard_transformations = _st
+        implicit_multiplication_application = _ima
+        convert_xor = _cx
+        np = _np
+        mpmath = _mpmath
+
+        x, y, z = _sp.symbols('x y z')
+        local_dict = {
+            'x': x, 'y': y, 'z': z,
+            'E': _sp.E, 'pi': _sp.pi,
+            'sin': _sp.sin, 'cos': _sp.cos, 'tan': _sp.tan,
+            'asin': _sp.asin, 'acos': _sp.acos, 'atan': _sp.atan, 'atan2': _sp.atan2,
+            'sinh': _sp.sinh, 'cosh': _sp.cosh, 'tanh': _sp.tanh,
+            'asinh': _sp.asinh, 'acosh': _sp.acosh, 'atanh': _sp.atanh,
+            'exp': _sp.exp, 'sqrt': _sp.sqrt, 'log': _sp.log, 'ln': _sp.log,
+            'Abs': _sp.Abs, 'sign': _sp.sign, 'floor': _sp.floor, 'ceiling': _sp.ceiling,
+        }
+        # ``parse_expr`` ultimately evaluates generated Python code.  Keep its
+        # execution namespace deliberately small and free of builtins.
+        _safe_global_dict = {
+            '__builtins__': {},
+            'Integer': _sp.Integer,
+            'Float': _sp.Float,
+            'Rational': _sp.Rational,
+            'factorial': _sp.factorial,
+        }
+        # Namespace for the unevaluated pre-parse used by ``_check_number_sizes``.
+        # ``parse_expr(evaluate=False)`` emits explicit Add/Mul/Pow calls, and the
+        # ``n!`` notation is not covered by it, so factorial must stay unevaluated.
+        _guard_global_dict = dict(
+            _safe_global_dict,
+            Add=_sp.Add,
+            Mul=_sp.Mul,
+            Pow=_sp.Pow,
+            factorial=lambda arg: _sp.factorial(arg, evaluate=False),
+        )
+        sp = _sp
 
 def _digits_of_power(base, exponent):
     """Approximate decimal digits of ``base**exponent`` without computing it."""
