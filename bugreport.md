@@ -31,7 +31,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 12 | Medium | Concurrency | Visualization workers pile up and share an unlocked `OrderedDict` cache | **Fixed** |
 | 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | **Fixed** |
 | 14 | Low | Theming | Hard-coded colours ignore the dark theme | **Fixed** |
-| 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | Confirmed |
+| 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | **Fixed** |
 | 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | Code review |
 | 17 | Low | Visualization | A VTK init failure is permanent for the whole session | Code review |
 | 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | Confirmed |
@@ -223,11 +223,13 @@ Dark is the default theme. Pure blue on `#252526` has a contrast of about 2.4:1,
 
 **Resolution:** `themes.py` now defines a palette per theme (error, success, warning, muted, accent, plot background and foreground). Every text colour meets WCAG AA (≥ 4.5:1) against its backgrounds, and a test enforces it; the old blue measured 1.78:1 on the dark editor. Labels take their colour from theme QSS through object names and a `state` property instead of inline styles. Results re-render in the theme's accent when the theme changes. The 3D viewport, axis labels, scalar bar and overlay text follow the theme. PDF export always uses the light palette, because it's a white page.
 
-## 15. Scientific notation (`1e3`) is rejected as "Unsupported name: e3" — Low
+## 15. Scientific notation (`1e3`) is rejected as "Unsupported name: e3" — Low — **Fixed**
 
 **Where:** [computation.py:81-87](src/core/computation.py:81)
 
 The identifier regex matches the `e3` in `1e3`. Either strip numeric literals before scanning for identifiers, or document that scientific notation isn't supported.
+
+**Resolution:** numeric literals, including scientific notation, are now removed before the identifier scan. `1e3`, `2.5e-3`, `.5e1` and `1e3*x` all parse, while `2e`, `e3` and `x1e3` are still rejected as unsupported names.
 
 ## 16. `_lazy_init()` is not thread-safe (latent) — Low
 

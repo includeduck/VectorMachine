@@ -27,6 +27,10 @@ _SUPPORTED_IDENTIFIERS = frozenset({
     "exp", "sqrt", "log", "ln", "Abs", "sign", "floor", "ceiling",
 })
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
+# Numeric literals, including scientific notation, are removed before the
+# identifier scan so the ``e3`` in ``1e3`` is not taken for a name.  The
+# lookbehind keeps digits inside names (``x1e3``) part of the name.
+_NUMBER_RE = re.compile(r"(?<![\w.])(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
 _ALLOWED_CHARACTER_RE = re.compile(r"^[0-9A-Za-z_+\-*/^().,!\s]*$")
 # Exact integer arithmetic is evaluated eagerly while parsing and holds the
 # GIL, so inputs like ``9**9**9`` would freeze the app.  Reject any number
@@ -156,7 +160,7 @@ def parse_expression(expr_str):
     if not _ALLOWED_CHARACTER_RE.fullmatch(expression):
         return None, "Expression contains unsupported characters."
 
-    identifiers = _IDENTIFIER_RE.findall(expression)
+    identifiers = _IDENTIFIER_RE.findall(_NUMBER_RE.sub(" ", expression))
     unknown_identifiers = [
         name for name in identifiers
         if name not in _SUPPORTED_IDENTIFIERS and not set(name) <= {"x", "y", "z"}
