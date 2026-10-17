@@ -563,3 +563,56 @@ class TestThemeColours:
         assert panel.plotter.add_mesh.called and panel.plotter.add_text.called
         panel.deleteLater()
         qapp.processEvents()
+
+
+class TestVtkInitRetry:
+    """The 3D view can be retried after a failed start (e.g. no OpenGL)."""
+
+    @staticmethod
+    def _fake_pyvistaqt(monkeypatch, fail):
+        import sys
+        import types
+
+        from PySide6.QtWidgets import QWidget
+
+        class FakeInteractor(QWidget):
+            def __init__(self, parent=None):
+                if fail:
+                    raise RuntimeError("no OpenGL context")
+                super().__init__(parent)
+                self.background = None
+
+            def set_background(self, colour):
+                self.background = colour
+
+            def add_axes(self, **kwargs):
+                pass
+
+        module = types.ModuleType("pyvistaqt")
+        module.QtInteractor = FakeInteractor
+        monkeypatch.setitem(sys.modules, "pyvistaqt", module)
+
+    def test_failure_is_visible_and_retry_recovers(self, qapp, monkeypatch):
+        panel = VisualizationPanel()
+
+        self._fake_pyvistaqt(monkeypatch, fail=True)
+        assert panel.ensure_vtk_initialized() is False
+        # The message used to be set on a label that had already been hidden.
+        assert not panel._plot_placeholder.isHidden()
+        assert "no OpenGL context" in panel._plot_placeholder.text()
+        assert not panel._retry_button.isHidden()
+        assert panel.ensure_vtk_initialized() is False  # no silent retry loop
+
+        self._fake_pyvistaqt(monkeypatch, fail=False)
+        scheduled = []
+        panel.schedule_plot_update = lambda source="unknown": scheduled.append(source)
+        panel.p_expr, panel.q_expr, panel.r_expr = (
+            parse_expression(text)[0] for text in ("x", "y", "z")
+        )
+        panel._retry_button.click()
+
+        assert panel._vtk_initialized
+        assert panel._plot_placeholder.isHidden() and panel._retry_button.isHidden()
+        assert scheduled == ["retry"]
+        panel.deleteLater()
+        qapp.processEvents()

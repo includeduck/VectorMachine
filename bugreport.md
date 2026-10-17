@@ -33,7 +33,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 14 | Low | Theming | Hard-coded colours ignore the dark theme | **Fixed** |
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | **Fixed** |
 | 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | **Fixed** |
-| 17 | Low | Visualization | A VTK init failure is permanent for the whole session | Code review |
+| 17 | Low | Visualization | A VTK init failure is permanent for the whole session | **Fixed** (retry; no fallback renderer) |
 | 18 | Low | Repo / Docs | Tracked build debris, a stray spike file, and docs that no longer match the code | Confirmed |
 
 ---
@@ -239,11 +239,13 @@ The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z`
 
 **Resolution:** both. Initialisation runs under a lock with a double-checked fast path and publishes `sp` last. A regression test reproduces the race in a fresh interpreter: on the old code, every thread arriving mid-initialisation failed with `'NoneType' object has no attribute 'copy'`.
 
-## 17. A VTK init failure is permanent for the whole session — Low
+## 17. A VTK init failure is permanent for the whole session — Low — **Fixed**
 
 **Where:** [visualization_panel.py:121-147](src/ui/visualization_panel.py:121)
 
 `_vtk_initialization_failed` is set once and is never retried. There is no fallback renderer such as Matplotlib quiver, even though Matplotlib is already in `requirements.txt`. This was already listed in `Weakness.md` and is still open.
+
+**Resolution:** a failed start now shows the error with a hint (OpenGL unavailable: drivers, remote desktop, VM) and a **Retry 3D view** button that clears the failure and tries again, replotting on success. This also fixed a related bug: the placeholder used to be hidden *before* the viewport was created, so the failure message was set on an invisible label and the tab just looked blank. Any partly created viewport is removed. **Not done:** a Matplotlib fallback renderer for machines with no OpenGL at all.
 
 ## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low
 

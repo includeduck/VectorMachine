@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QRadioButton,
     QSlider,
     QSpinBox,
@@ -126,7 +127,16 @@ class VisualizationPanel(QWidget):
 
         self._plot_placeholder = QLabel("Open this tab to initialize visualization.")
         self._plot_placeholder.setAlignment(Qt.AlignCenter)
+        self._plot_placeholder.setWordWrap(True)
         layout.addWidget(self._plot_placeholder)
+
+        # Shown only after a failed VTK start (missing OpenGL driver, remote
+        # desktop, ...), so the user can retry without restarting the app.
+        self._retry_button = QPushButton("Retry 3D view")
+        self._retry_button.setToolTip("Try to start the 3D renderer again")
+        self._retry_button.hide()
+        self._retry_button.clicked.connect(self.retry_vtk_initialization)
+        layout.addWidget(self._retry_button, alignment=Qt.AlignCenter)
 
         self.radio_2d.toggled.connect(lambda checked: self.schedule_plot_update("radio_2d") if checked else None)
         self.radio_3d.toggled.connect(lambda checked: self.schedule_plot_update("radio_3d") if checked else None)
@@ -178,13 +188,16 @@ class VisualizationPanel(QWidget):
         try:
             from pyvistaqt import QtInteractor
 
-            self._plot_placeholder.hide()
             self.vtk_widget = QtInteractor(self)
             layout.addWidget(self.vtk_widget)
             self.plotter = self.vtk_widget
             self.plotter.set_background(self._palette["plot_background"])
             self._add_axes()
             self._vtk_initialized = True
+            # Hidden only once the viewport exists; hiding it first meant a
+            # failure's message landed on an invisible label.
+            self._plot_placeholder.hide()
+            self._retry_button.hide()
 
             debug_log(
                 "visualization_panel.py:ensure_vtk_initialized",
@@ -194,10 +207,29 @@ class VisualizationPanel(QWidget):
             )
             return True
         except Exception as e:
-            self._plot_placeholder.setText(f"PyVista failed to initialize: {e}")
+            if self.vtk_widget is not None:
+                layout.removeWidget(self.vtk_widget)
+                self.vtk_widget.deleteLater()
+                self.vtk_widget = None
             self.plotter = None
             self._vtk_initialization_failed = True
+            self._plot_placeholder.setText(
+                f"The 3D view could not start: {e}\n\n"
+                "This usually means OpenGL is unavailable (missing graphics "
+                "drivers, a remote desktop or a virtual machine). Results and "
+                "exports still work."
+            )
+            self._plot_placeholder.show()
+            self._retry_button.show()
             return False
+
+    def retry_vtk_initialization(self):
+        """Clear a previous failure and try to start the 3D view again."""
+        self._vtk_initialization_failed = False
+        self._plot_placeholder.setText("Starting the 3D view...")
+        if self.ensure_vtk_initialized() and self.p_expr is not None:
+            self.schedule_plot_update("retry")
+        return self._vtk_initialized
         
     def set_expressions(self, P, Q, R, source="set_expressions"):
         unchanged = (P, Q, R) == (self.p_expr, self.q_expr, self.r_expr)
