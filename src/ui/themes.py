@@ -168,6 +168,58 @@ QSlider::handle:horizontal {
 """
 
 
+# Semantic colours for text the stylesheets above don't cover.  Every
+# entry meets WCAG AA (>= 4.5:1) against its theme's window and editor
+# backgrounds.
+PALETTES = {
+    "dark": {
+        "error": "#f48771",
+        "success": "#89d185",
+        "warning": "#cca700",
+        "muted": "#a0a0a0",
+        "accent": "#4fc1ff",
+        "plot_background": "#1e1e1e",
+        "plot_foreground": "#d4d4d4",
+    },
+    "light": {
+        "error": "#c42b1c",
+        "success": "#0e700e",
+        "warning": "#8a5300",
+        "muted": "#5c5c5c",
+        "accent": "#0451a5",
+        "plot_background": "#ffffff",
+        "plot_foreground": "#1e1e1e",
+    },
+}
+
+
+def _role_qss(palette):
+    # Widgets opt in with an object name and, for the preview, a ``state``
+    # property, so colours follow the theme instead of inline styles.
+    return f"""
+QLabel#fieldError {{
+    color: {palette["error"]};
+}}
+QLabel#previewLabel {{
+    font-weight: bold;
+}}
+QLabel#previewLabel[state="valid"] {{
+    color: {palette["success"]};
+}}
+QLabel#previewLabel[state="invalid"] {{
+    color: {palette["error"]};
+}}
+QLabel#previewLabel[state="pending"] {{
+    color: {palette["warning"]};
+}}
+QLabel#vizStatus {{
+    color: {palette["muted"]};
+    font-style: italic;
+    padding: 2px;
+}}
+"""
+
+
 def resolve_theme(theme_name: str) -> str:
     if theme_name == "system":
         scheme = QGuiApplication.styleHints().colorScheme()
@@ -175,6 +227,11 @@ def resolve_theme(theme_name: str) -> str:
     return theme_name
 
 
+def palette_for(theme_name: str) -> dict:
+    return PALETTES[resolve_theme(theme_name)]
+
+
 def stylesheet_for(theme_name: str) -> str:
     resolved = resolve_theme(theme_name)
-    return DARK_QSS if resolved == "dark" else LIGHT_QSS
+    base = DARK_QSS if resolved == "dark" else LIGHT_QSS
+    return base + _role_qss(PALETTES[resolved])

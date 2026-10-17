@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from src.core.debug_log import debug_log
+from src.ui.themes import PALETTES
 from src.ui.visualization_worker import VisualizationWorker
 
 MAX_3D_DENSITY = 15
@@ -67,6 +68,7 @@ class VisualizationPanel(QWidget):
         self._running_worker = None
         self._replot_pending = False
         self._arrow_spacing = 2 * 5 / (10 - 1)
+        self._palette = PALETTES["dark"]
         self._status_label = None
 
         self.plot_timer = QTimer(self)
@@ -119,7 +121,7 @@ class VisualizationPanel(QWidget):
         layout.addWidget(controls_group)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #666; font-style: italic; padding: 2px;")
+        self._status_label.setObjectName("vizStatus")
         layout.addWidget(self._status_label)
 
         self._plot_placeholder = QLabel("Open this tab to initialize visualization.")
@@ -153,6 +155,19 @@ class VisualizationPanel(QWidget):
         pixmap = self.grab()
         return pixmap.save(file_path, "PNG")
 
+    def apply_palette(self, palette):
+        """Match the 3D viewport to the application theme."""
+        self._palette = palette
+        if self.plotter:
+            self.plotter.set_background(palette["plot_background"])
+            self._add_axes()
+            self.plotter.render()
+
+    def _add_axes(self):
+        # ``add_axes`` replaces any existing axes widget; ``show_axes`` (used
+        # after ``clear``) just re-enables it, keeping the label colour.
+        self.plotter.add_axes(color=self._palette["plot_foreground"])
+
     def ensure_vtk_initialized(self):
         if self._vtk_initialized:
             return True
@@ -167,8 +182,8 @@ class VisualizationPanel(QWidget):
             self.vtk_widget = QtInteractor(self)
             layout.addWidget(self.vtk_widget)
             self.plotter = self.vtk_widget
-            self.plotter.set_background("white")
-            self.plotter.show_axes()
+            self.plotter.set_background(self._palette["plot_background"])
+            self._add_axes()
             self._vtk_initialized = True
 
             debug_log(
@@ -369,6 +384,7 @@ class VisualizationPanel(QWidget):
                     "No finite real vectors in the selected domain.",
                     position="upper_left",
                     font_size=10,
+                    color=self._palette["plot_foreground"],
                 )
                 self.plotter.render()
                 return
@@ -381,7 +397,13 @@ class VisualizationPanel(QWidget):
             cloud["arrow_length"] = arrow_lengths(magnitudes, self._arrow_spacing, scale_factor)
 
             arrows = cloud.glyph(orient="vectors", scale="arrow_length", factor=1.0)
-            self.plotter.add_mesh(arrows, scalars="magnitude", cmap="viridis", show_scalar_bar=True)
+            self.plotter.add_mesh(
+                arrows,
+                scalars="magnitude",
+                cmap="viridis",
+                show_scalar_bar=True,
+                scalar_bar_args={"color": self._palette["plot_foreground"]},
+            )
 
             if is_2d:
                 self.plotter.view_xy()

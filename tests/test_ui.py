@@ -480,3 +480,86 @@ class TestSessionLoad:
         window.close()
         window.deleteLater()
         qapp.processEvents()
+
+
+class TestThemeColours:
+    @staticmethod
+    def _contrast(a, b):
+        def luminance(hex_colour):
+            channels = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            channels = [
+                c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels
+            ]
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+        high, low = sorted((luminance(a), luminance(b)), reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    def test_palette_text_meets_wcag_aa(self):
+        from src.ui.themes import PALETTES
+
+        backgrounds = {"dark": ("#1e1e1e", "#252526"), "light": ("#f3f3f3", "#ffffff")}
+        for theme, palette in PALETTES.items():
+            for role in ("error", "success", "warning", "muted", "accent"):
+                for background in backgrounds[theme]:
+                    assert self._contrast(palette[role], background) >= 4.5, (theme, role)
+            assert self._contrast(palette["plot_foreground"], palette["plot_background"]) >= 4.5
+
+    def test_results_follow_theme_and_pdf_uses_light_accent(self, qapp, radial_field):
+        from src.ui.themes import PALETTES
+
+        window = VectorMachineWindow()
+        window.results_panel.display_divergence(compute_divergence(*radial_field))
+        dark, light = PALETTES["dark"]["accent"], PALETTES["light"]["accent"]
+
+        window.apply_theme("dark")
+        assert dark in window.results_panel.results_text.toHtml()
+        window.apply_theme("light")
+        assert light in window.results_panel.results_text.toHtml()
+        window.apply_theme("dark")
+        # Exported PDFs are white pages, whatever the on-screen theme.
+        exported = window.results_panel.export_html()
+        assert light in exported and dark not in exported
+        window.close()
+        window.deleteLater()
+        qapp.processEvents()
+
+    def test_no_inline_colours_on_input_labels(self, qapp):
+        panel = InputPanel()
+        panel.set_texts("x", "y", "z")
+        assert panel.preview_label.property("state") == "valid"
+        panel.set_texts("x +", "y", "z")
+        assert panel.preview_label.property("state") == "invalid"
+        for label in (panel.preview_label, panel.p_error, panel.q_error, panel.r_error):
+            assert label.styleSheet() == ""
+        panel.deleteLater()
+        qapp.processEvents()
+
+    def test_plot_calls_match_pyvista_api(self, qapp):
+        # An autospec plotter rejects calls that don't match PyVista's real
+        # signatures (e.g. ``show_axes`` takes no colour argument).
+        from unittest.mock import create_autospec
+
+        import numpy as np
+        import pyvista as pv
+
+        from src.ui.themes import PALETTES
+
+        panel = VisualizationPanel()
+        panel.plotter = create_autospec(pv.Plotter, instance=True)
+        panel._vtk_initialized = True
+        panel.apply_palette(PALETTES["light"])
+        panel.plotter.set_background.assert_called_with(PALETTES["light"]["plot_background"])
+
+        points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        vectors = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        panel._on_visualization_ready(
+            panel._viz_revision, points, vectors, np.array([1.0, 1.0]), True, 1.0, 0.0
+        )
+        panel._on_visualization_ready(
+            panel._viz_revision, np.empty((0, 3)), np.empty((0, 3)), np.empty(0), True, 1.0, 0.0
+        )
+        panel.clear_plot()
+        assert panel.plotter.add_mesh.called and panel.plotter.add_text.called
+        panel.deleteLater()
+        qapp.processEvents()

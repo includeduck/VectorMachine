@@ -20,7 +20,7 @@ from src.core.settings import get_theme, set_theme
 from src.ui.compute_worker import ComputeWorker
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
-from src.ui.themes import stylesheet_for
+from src.ui.themes import palette_for, stylesheet_for
 from src.ui.visualization_panel import VisualizationPanel
 
 
@@ -64,6 +64,9 @@ class VectorMachineWindow(QMainWindow):
     def apply_theme(self, theme_name):
         self._current_theme = theme_name
         self.setStyleSheet(stylesheet_for(theme_name))
+        palette = palette_for(theme_name)
+        self.results_panel.set_accent(palette["accent"])
+        self.visualization_panel.apply_palette(palette)
         for name, action in self._theme_actions.items():
             action.setChecked(name == theme_name)
 
@@ -420,8 +423,7 @@ class VectorMachineWindow(QMainWindow):
             elif format_type == "md":
                 export_markdown(file_path, p, q, r, self.last_div_steps, self.last_curl_steps)
             elif format_type == "pdf":
-                html = self.results_panel.results_text.toHtml()
-                export_pdf(file_path, html)
+                export_pdf(file_path, self.results_panel.export_html())
             elif format_type == "png":
                 if self.tab_widget.currentWidget() is self.visualization_panel:
                     if not self.visualization_panel.export_screenshot(file_path):

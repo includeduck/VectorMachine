@@ -30,7 +30,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 11 | Medium | Visualization | Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component | **Fixed** |
 | 12 | Medium | Concurrency | Visualization workers pile up and share an unlocked `OrderedDict` cache | **Fixed** |
 | 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | **Fixed** |
-| 14 | Low | Theming | Hard-coded colours ignore the dark theme | Code review |
+| 14 | Low | Theming | Hard-coded colours ignore the dark theme | **Fixed** |
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | Confirmed |
 | 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | Code review |
 | 17 | Low | Visualization | A VTK init failure is permanent for the whole session | Code review |
@@ -213,11 +213,13 @@ The session format also has no `version` field.
 
 **Resolution:** empty or blank fields no longer show an error; they only keep Compute disabled. An all-empty form shows the neutral preview `F = <_, _, _>`.
 
-## 14. Hard-coded colours ignore the dark theme — Low
+## 14. Hard-coded colours ignore the dark theme — Low — **Fixed**
 
 **Where:** [results_panel.py:410](src/ui/results_panel.py:410), [results_panel.py:424](src/ui/results_panel.py:424) (`color:blue`); [input_panel.py:430-511](src/ui/input_panel.py:430) (`red`, `green`, `#b36b00`); [visualization_panel.py:89](src/ui/visualization_panel.py:89) (`#666`); [visualization_panel.py:132](src/ui/visualization_panel.py:132) (white plot background)
 
 Dark is the default theme. Pure blue on `#252526` has a contrast of about 2.4:1, which fails WCAG AA, and the white VTK viewport is jarring in dark mode. Take these colours from the theme module.
+
+**Resolution:** `themes.py` now defines a palette per theme (error, success, warning, muted, accent, plot background and foreground). Every text colour meets WCAG AA (≥ 4.5:1) against its backgrounds, and a test enforces it; the old blue measured 1.78:1 on the dark editor. Labels take their colour from theme QSS through object names and a `state` property instead of inline styles. Results re-render in the theme's accent when the theme changes. The 3D viewport, axis labels, scalar bar and overlay text follow the theme. PDF export always uses the light palette, because it's a white page.
 
 ## 15. Scientific notation (`1e3`) is rejected as "Unsupported name: e3" — Low
 
