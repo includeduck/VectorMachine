@@ -89,3 +89,34 @@ class TestSessionPersistence:
 
         content = unicode_path.read_text(encoding="utf-8")
         assert "α + x" in content
+
+
+class TestSessionVersioning:
+    """The session file carries a schema version so the format can evolve."""
+
+    def _write(self, path, **overrides):
+        data = {"P": "x", "Q": "y", "R": "z", "results": {}}
+        data.update(overrides)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_saved_sessions_record_version(self, tmp_dir):
+        path = tmp_dir / "versioned.json"
+        save_session(path, "x", "y", "z")
+        assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
+
+    def test_unversioned_files_still_load(self, tmp_dir):
+        data, err = load_session(self._write(tmp_dir / "old.json"))
+        assert err is None
+        assert data["P"] == "x"
+
+    def test_newer_version_is_rejected(self, tmp_dir):
+        data, err = load_session(self._write(tmp_dir / "future.json", version=2))
+        assert data is None
+        assert "newer version" in err
+
+    def test_malformed_version_is_rejected(self, tmp_dir):
+        for bad in ("1", 0, True, None):
+            data, err = load_session(self._write(tmp_dir / "bad.json", version=bad))
+            assert data is None, bad
+            assert "version" in err.lower()

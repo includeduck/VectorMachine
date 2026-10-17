@@ -34,6 +34,9 @@ class VectorMachineWindow(QMainWindow):
         self.last_curl_steps = None
         self._compute_worker = None
         self._compute_in_progress = False
+        # Computations to run after the current one (used to rebuild a loaded
+        # session's results).  Any input change or cancel drops them.
+        self._queued_computes = []
         self._input_revision = 0
         self._active_compute_revision = None
         self._current_theme = get_theme()
@@ -205,6 +208,7 @@ class VectorMachineWindow(QMainWindow):
 
     def update_state(self):
         self._input_revision += 1
+        self._queued_computes = []
         is_valid = self.input_panel.is_valid()
         self._set_compute_enabled(is_valid)
         
@@ -273,6 +277,7 @@ class VectorMachineWindow(QMainWindow):
         worker.start()
 
     def on_cancel_compute(self):
+        self._queued_computes = []
         self._cancel_compute_worker()
         self._compute_in_progress = False
         self._active_compute_revision = None
@@ -305,6 +310,8 @@ class VectorMachineWindow(QMainWindow):
         # result: PDF/PNG export captures the panel, TXT/MD use both steps.
         self.results_panel.display_results(self.last_div_steps, self.last_curl_steps)
         self.tab_widget.setCurrentWidget(self.results_panel)
+        if self._queued_computes:
+            self._start_compute(self._queued_computes.pop(0))
 
     def _on_compute_error(self, compute_type, error_msg, worker=None):
         if self._is_stale_worker(worker):
@@ -314,6 +321,7 @@ class VectorMachineWindow(QMainWindow):
         self._compute_worker = None
         self._active_compute_revision = None
         self._set_compute_enabled(True)
+        self._queued_computes = []
         if is_current:
             QMessageBox.critical(self, "Computation Error", error_msg)
 
@@ -368,15 +376,26 @@ class VectorMachineWindow(QMainWindow):
         q = data.get("Q", "")
         r = data.get("R", "")
         
+        if self._compute_in_progress:
+            self.on_cancel_compute()
         self.input_panel.set_texts(p, q, r)
 
+        # Saved result strings are not trusted: a hand-edited or merged file
+        # can pair them with a different field.  Recompute whatever the
+        # session had results for, from its own inputs.
         results = data.get("results", {})
-        self.last_div_steps = results.get("divergence")
-        self.last_curl_steps = results.get("curl")
+        saved = [name for name in ("divergence", "curl") if results.get(name)]
+        message = "Session loaded successfully."
+        if saved and self.input_panel.is_valid():
+            self._queued_computes = saved[1:]
+            self._start_compute(saved[0])
+        elif saved:
+            message = (
+                "Session loaded, but its saved results were not restored "
+                "because the vector field is invalid."
+            )
 
-        self.results_panel.display_results(self.last_div_steps, self.last_curl_steps)
-
-        QMessageBox.information(self, "Session Loaded", "Session loaded successfully.")
+        QMessageBox.information(self, "Session Loaded", message)
 
     def on_export(self, format_type):
         p, q, r = self.input_panel.get_texts()

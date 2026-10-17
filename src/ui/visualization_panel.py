@@ -1,3 +1,4 @@
+import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -17,6 +18,31 @@ from src.core.debug_log import debug_log
 from src.ui.visualization_worker import VisualizationWorker
 
 MAX_3D_DENSITY = 15
+# The scale slider's value divided by this is the length of the longest
+# arrows in grid spacings, so the default (20) makes them one spacing long.
+SCALE_SLIDER_UNIT = 20.0
+# Arrow lengths are relative to this percentile of |F|, so a few huge
+# samples near a singularity don't shrink every other arrow to a dot.
+ARROW_REFERENCE_PERCENTILE = 95
+
+
+def arrow_lengths(magnitudes, spacing, scale_factor):
+    """Glyph length per sample: ``|F|`` relative to a robust maximum.
+
+    Lengths are capped at ``spacing * scale_factor`` so arrows stay inside
+    their grid cell regardless of the domain or of outliers; colour still
+    shows the true magnitude.
+    """
+    magnitudes = np.asarray(magnitudes, dtype=float)
+    if magnitudes.size == 0:
+        return magnitudes
+    reference = float(np.percentile(magnitudes, ARROW_REFERENCE_PERCENTILE))
+    if reference <= 0:
+        reference = float(magnitudes.max())
+    if reference <= 0:
+        return np.zeros_like(magnitudes)
+    return np.minimum(magnitudes / reference, 1.0) * spacing * scale_factor
+
 
 class VisualizationPanel(QWidget):
     def __init__(self, parent=None):
@@ -35,6 +61,12 @@ class VisualizationPanel(QWidget):
         self._last_schedule_source = "init"
         self._viz_revision = 0
         self._current_worker = None
+        # The thread actually executing, which can differ from
+        # ``_current_worker`` once that result is no longer wanted.  At most
+        # one runs at a time; a request made meanwhile replots after it.
+        self._running_worker = None
+        self._replot_pending = False
+        self._arrow_spacing = 2 * 5 / (10 - 1)
         self._status_label = None
 
         self.plot_timer = QTimer(self)
@@ -79,7 +111,8 @@ class VisualizationPanel(QWidget):
         controls_layout.addWidget(QLabel("Scale:"))
         self.scale_slider = QSlider(Qt.Horizontal)
         self.scale_slider.setRange(1, 200)
-        self.scale_slider.setValue(20)
+        self.scale_slider.setValue(int(SCALE_SLIDER_UNIT))
+        self.scale_slider.setToolTip("Arrow length; the default makes the longest arrows one grid step long.")
         controls_layout.addWidget(self.scale_slider)
         
         controls_group.setLayout(controls_layout)
@@ -174,10 +207,18 @@ class VisualizationPanel(QWidget):
             except (RuntimeError, ReferenceError):
                 pass
 
+    @staticmethod
+    def _is_running(worker):
+        try:
+            return isValid(worker) and worker.isRunning()
+        except (RuntimeError, ReferenceError):
+            return False
+
     def stop_workers(self, timeout_ms=2000):
         """Cancel any pending plot and wait (bounded) for its worker to exit."""
-        worker = self._current_worker
+        worker = self._running_worker
         self.plot_timer.stop()
+        self._replot_pending = False
         self._cancel_active_worker()
         try:
             if worker is not None and isValid(worker):
@@ -188,6 +229,11 @@ class VisualizationPanel(QWidget):
     def _on_worker_finished(self, worker):
         if self._current_worker is worker:
             self._current_worker = None
+        if self._running_worker is worker:
+            self._running_worker = None
+            if self._replot_pending:
+                self._replot_pending = False
+                self._do_update_plot()
 
     def clear_plot(self):
         self.p_expr = None
@@ -195,6 +241,7 @@ class VisualizationPanel(QWidget):
         self.r_expr = None
         self._viz_revision += 1
         self.plot_timer.stop()
+        self._replot_pending = False
         self._cancel_active_worker()
         if self._status_label:
             self._status_label.setText("")
@@ -235,12 +282,23 @@ class VisualizationPanel(QWidget):
         if not self._vtk_initialized or not self.plotter:
             return
 
+        if self._running_worker is not None and self._is_running(self._running_worker):
+            # A cancelled worker keeps evaluating until it finishes, so
+            # starting another would stack threads.  Drop its result and
+            # replot with the latest settings once it exits.
+            self._viz_revision += 1
+            self._cancel_active_worker()
+            self._replot_pending = True
+            if self._status_label:
+                self._status_label.setText("Computing vector field in background...")
+            return
+
         self._plot_run_count += 1
         run_id = self._plot_run_count
         self._viz_revision += 1
         revision = self._viz_revision
 
-        # Cancel prior running worker if still processing
+        # Cancel prior worker whose result is no longer wanted
         self._cancel_active_worker()
 
         debug_log(
@@ -255,8 +313,9 @@ class VisualizationPanel(QWidget):
             self.density_spin.value(),
             self.radio_2d.isChecked(),
         )
-        scale_factor = self.scale_slider.value() / 100.0
+        scale_factor = self.scale_slider.value() / SCALE_SLIDER_UNIT
         is_2d = self.radio_2d.isChecked()
+        self._arrow_spacing = 2 * domain / (density - 1)
 
         self._plot_busy = True
         if self._status_label:
@@ -274,6 +333,7 @@ class VisualizationPanel(QWidget):
             parent=self,
         )
         self._current_worker = worker
+        self._running_worker = worker
         worker.finished_ok.connect(self._on_visualization_ready)
         worker.finished_err.connect(self._on_visualization_error)
         worker.finished.connect(lambda w=worker: self._on_worker_finished(w))
@@ -318,8 +378,9 @@ class VisualizationPanel(QWidget):
             cloud = pv.PolyData(points)
             cloud["vectors"] = vectors
             cloud["magnitude"] = magnitudes
+            cloud["arrow_length"] = arrow_lengths(magnitudes, self._arrow_spacing, scale_factor)
 
-            arrows = cloud.glyph(orient="vectors", scale="magnitude", factor=scale_factor)
+            arrows = cloud.glyph(orient="vectors", scale="arrow_length", factor=1.0)
             self.plotter.add_mesh(arrows, scalars="magnitude", cmap="viridis", show_scalar_bar=True)
 
             if is_2d:
