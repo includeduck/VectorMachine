@@ -1,47 +1,198 @@
+import re
+from collections import OrderedDict
+
 sp = None
 parse_expr = None
 standard_transformations = None
 implicit_multiplication_application = None
+convert_xor = None
 np = None
+mpmath = None
 
 x, y, z = None, None, None
 local_dict = None
+_safe_global_dict = None
+_guard_global_dict = None
+_lambdify_cache = OrderedDict()
+_LAMBDA_CACHE_LIMIT = 128
+
+_SUPPORTED_IDENTIFIERS = frozenset({
+    "x", "y", "z", "E", "pi",
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+    "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+    "exp", "sqrt", "log", "ln", "Abs", "sign", "floor", "ceiling",
+})
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*")
+_ALLOWED_CHARACTER_RE = re.compile(r"^[0-9A-Za-z_+\-*/^().,!\s]*$")
+# Exact integer arithmetic is evaluated eagerly while parsing and holds the
+# GIL, so inputs like ``9**9**9`` would freeze the app.  Reject any number
+# whose exact value would exceed these bounds before SymPy computes it.
+_MAX_NUMBER_DIGITS = 1000
+_MAX_FACTORIAL_ARGUMENT = 1000
+_TOO_LARGE_ERROR = f"Number is too large (limit is {_MAX_NUMBER_DIGITS} digits)."
+
+
+class _NumberTooLarge(Exception):
+    pass
 
 def _lazy_init():
     global sp, parse_expr, standard_transformations, implicit_multiplication_application, np
-    global x, y, z, local_dict
+    global convert_xor, mpmath, x, y, z, local_dict, _safe_global_dict, _guard_global_dict
     
     if sp is not None:
         return
         
-    import sympy as _sp
-    from sympy.parsing.sympy_parser import parse_expr as _pe, standard_transformations as _st, implicit_multiplication_application as _ima
+    import mpmath as _mpmath
     import numpy as _np
+    import sympy as _sp
+    from sympy.parsing.sympy_parser import convert_xor as _cx
+    from sympy.parsing.sympy_parser import implicit_multiplication_application as _ima
+    from sympy.parsing.sympy_parser import parse_expr as _pe
+    from sympy.parsing.sympy_parser import standard_transformations as _st
     
     sp = _sp
     parse_expr = _pe
     standard_transformations = _st
     implicit_multiplication_application = _ima
+    convert_xor = _cx
     np = _np
+    mpmath = _mpmath
     
     x, y, z = sp.symbols('x y z')
-    local_dict = {'x': x, 'y': y, 'z': z}
+    local_dict = {
+        'x': x, 'y': y, 'z': z,
+        'E': sp.E, 'pi': sp.pi,
+        'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan,
+        'asin': sp.asin, 'acos': sp.acos, 'atan': sp.atan, 'atan2': sp.atan2,
+        'sinh': sp.sinh, 'cosh': sp.cosh, 'tanh': sp.tanh,
+        'asinh': sp.asinh, 'acosh': sp.acosh, 'atanh': sp.atanh,
+        'exp': sp.exp, 'sqrt': sp.sqrt, 'log': sp.log, 'ln': sp.log,
+        'Abs': sp.Abs, 'sign': sp.sign, 'floor': sp.floor, 'ceiling': sp.ceiling,
+    }
+    # ``parse_expr`` ultimately evaluates generated Python code.  Keep its
+    # execution namespace deliberately small and free of builtins.
+    _safe_global_dict = {
+        '__builtins__': {},
+        'Integer': sp.Integer,
+        'Float': sp.Float,
+        'Rational': sp.Rational,
+        'factorial': sp.factorial,
+    }
+    # Namespace for the unevaluated pre-parse used by ``_check_number_sizes``.
+    # ``parse_expr(evaluate=False)`` emits explicit Add/Mul/Pow calls, and the
+    # ``n!`` notation is not covered by it, so factorial must stay unevaluated.
+    _guard_global_dict = dict(
+        _safe_global_dict,
+        Add=sp.Add,
+        Mul=sp.Mul,
+        Pow=sp.Pow,
+        factorial=lambda arg: sp.factorial(arg, evaluate=False),
+    )
+
+def _digits_of_power(base, exponent):
+    """Approximate decimal digits of ``base**exponent`` without computing it."""
+    try:
+        magnitude = mpmath.mpf(sp.Abs(base).evalf(15))
+    except Exception:
+        return 0
+    if magnitude == 0:
+        return 0
+    return abs(mpmath.log10(magnitude)) * abs(mpmath.mpf(exponent.p) / exponent.q)
+
+def _rebuild_checked(node):
+    """Evaluate an unevaluated tree bottom-up, refusing oversized numbers."""
+    if not node.args:
+        return node
+    args = [_rebuild_checked(arg) for arg in node.args]
+    if node.func is sp.Pow:
+        base, exponent = args
+        if (
+            base.is_number
+            and isinstance(exponent, sp.Rational)
+            and _digits_of_power(base, exponent) > _MAX_NUMBER_DIGITS
+        ):
+            raise _NumberTooLarge
+    elif node.func is sp.factorial:
+        (argument,) = args
+        if isinstance(argument, sp.Integer) and argument > _MAX_FACTORIAL_ARGUMENT:
+            raise _NumberTooLarge
+    return node.func(*args)
+
+def _check_number_sizes(expression, transformations):
+    unevaluated = parse_expr(
+        expression,
+        local_dict=local_dict.copy(),
+        global_dict=_guard_global_dict.copy(),
+        transformations=transformations,
+        evaluate=False,
+    )
+    if isinstance(unevaluated, sp.Basic):
+        _rebuild_checked(unevaluated)
+
+def _has_oversized_integer(expr):
+    limit_bits = int(_MAX_NUMBER_DIGITS * 3.33) + 1
+    return any(
+        max(abs(number.p), number.q).bit_length() > limit_bits
+        for number in expr.atoms(sp.Rational)
+    )
 
 def parse_expression(expr_str):
     """
     Parses a string into a SymPy expression.
     Returns (expr, None) on success, or (None, error_message) on failure.
     """
+    if not isinstance(expr_str, str):
+        return None, "Expression must be text."
     if not expr_str or not expr_str.strip():
         return None, "Expression cannot be empty."
-        
+
     _lazy_init()
+
+    expression = expr_str.strip()
+    if not _ALLOWED_CHARACTER_RE.fullmatch(expression):
+        return None, "Expression contains unsupported characters."
+
+    identifiers = _IDENTIFIER_RE.findall(expression)
+    unknown_identifiers = [
+        name for name in identifiers
+        if name not in _SUPPORTED_IDENTIFIERS and not set(name) <= {"x", "y", "z"}
+    ]
+    if unknown_identifiers:
+        return None, f"Unsupported name: {unknown_identifiers[0]}."
+
     try:
-        transformations = standard_transformations + (implicit_multiplication_application,)
-        expr = parse_expr(expr_str, local_dict=local_dict, transformations=transformations)
+        transformations = standard_transformations + (
+            convert_xor,
+            implicit_multiplication_application,
+        )
+        _check_number_sizes(expression, transformations)
+        expr = parse_expr(
+            expression,
+            local_dict=local_dict.copy(),
+            global_dict=_safe_global_dict.copy(),
+            transformations=transformations,
+        )
+        if not isinstance(expr, sp.Expr) or not expr.free_symbols <= {x, y, z}:
+            return None, "Expression must use only x, y, and z."
+        if _has_oversized_integer(expr):
+            return None, _TOO_LARGE_ERROR
         return expr, None
+    except _NumberTooLarge:
+        return None, _TOO_LARGE_ERROR
     except Exception as e:
-        return None, f"Syntax Error: {str(e)}"
+        return None, f"Syntax Error: {e!s}"
+
+def _get_lambdified(expressions):
+    """Return one cached NumPy function for all three field components."""
+    key = tuple(expressions)
+    try:
+        func = _lambdify_cache.pop(key)
+    except KeyError:
+        func = sp.lambdify((x, y, z), key, modules='numpy')
+        if len(_lambdify_cache) >= _LAMBDA_CACHE_LIMIT:
+            _lambdify_cache.popitem(last=False)
+    _lambdify_cache[key] = func
+    return func
 
 def compute_divergence(P_expr, Q_expr, R_expr):
     """
@@ -52,14 +203,15 @@ def compute_divergence(P_expr, Q_expr, R_expr):
     dP_dx = sp.diff(P_expr, x)
     dQ_dy = sp.diff(Q_expr, y)
     dR_dz = sp.diff(R_expr, z)
-    div_expr = sp.simplify(dP_dx + dQ_dy + dR_dz)
+    unsimplified = dP_dx + dQ_dy + dR_dz
+    div_expr = sp.simplify(unsimplified)
     
     steps = {
         "dP_dx": str(dP_dx),
         "dQ_dy": str(dQ_dy),
         "dR_dz": str(dR_dz),
         "formula": "∂P/∂x + ∂Q/∂y + ∂R/∂z",
-        "unsimplified": str(dP_dx + dQ_dy + dR_dz),
+        "unsimplified": str(unsimplified),
         "final": str(div_expr)
     }
     return steps
@@ -109,20 +261,38 @@ def evaluate_field(P_expr, Q_expr, R_expr, x_grid, y_grid, z_grid):
     Evaluates the vector field <P, Q, R> over a numpy meshgrid.
     Returns u, v, w as numpy arrays.
     """
+    import time
+
+    from src.core.debug_log import debug_log
+
     _lazy_init()
-    # lambdify the expressions. We provide 'numpy' to use numpy functions for sin, cos, exp etc.
-    p_func = sp.lambdify((x, y, z), P_expr, modules='numpy')
-    q_func = sp.lambdify((x, y, z), Q_expr, modules='numpy')
-    r_func = sp.lambdify((x, y, z), R_expr, modules='numpy')
-    
-    # Evaluate over the grids. If an expression is a constant (like 'z' derivative might be 0),
-    # lambdify might return a scalar. We use np.broadcast_to to ensure it's an array of grid shape.
-    u = p_func(x_grid, y_grid, z_grid)
-    v = q_func(x_grid, y_grid, z_grid)
-    w = r_func(x_grid, y_grid, z_grid)
-    
-    u = np.broadcast_to(np.asarray(u), x_grid.shape)
-    v = np.broadcast_to(np.asarray(v), x_grid.shape)
-    w = np.broadcast_to(np.asarray(w), x_grid.shape)
+    t0 = time.perf_counter()
+    field_func = _get_lambdified((P_expr, Q_expr, R_expr))
+    lambdify_ms = (time.perf_counter() - t0) * 1000
+
+    with np.errstate(all="ignore"):
+        u, v, w = field_func(x_grid, y_grid, z_grid)
+
+    components = []
+    for component in (u, v, w):
+        array = np.broadcast_to(np.asarray(component), x_grid.shape)
+        if not np.issubdtype(array.dtype, np.number):
+            raise ValueError("Field components must evaluate to numeric values.")
+        components.append(array)
+    u, v, w = components
+
+    debug_log(
+        "computation.py:evaluate_field",
+        "field evaluated",
+        {
+            "lambdifyMs": round(lambdify_ms, 2),
+            "cacheSize": len(_lambdify_cache),
+            "gridPoints": int(x_grid.size),
+        },
+        "E",
+    )
     
     return u, v, w
+
+def clear_lambdify_cache():
+    _lambdify_cache.clear()

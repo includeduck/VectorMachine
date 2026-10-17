@@ -1,0 +1,108 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, master, Fix ]
+  pull_request:
+    branches: [ main, master, Fix ]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Code Sanity & Linting
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run Ruff Linter
+        run: |
+          ruff check .
+
+      - name: Verify Python Compilation
+        run: |
+          python -m compileall src tests test_debug.py
+
+  test:
+    name: Test (${{ matrix.os }} - Python ${{ matrix.python-version }})
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-24.04, windows-2025 ]
+        # numpy 2.5 (pinned in requirements.txt) requires Python >= 3.12.
+        python-version: [ "3.12", "3.14" ]
+
+    # bash runs with -e and pipefail on every OS.  The Windows default
+    # (PowerShell) only reports the last command's exit code, which hid a
+    # failing `pip install` behind a later import error.
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+      # VTK still needs an X display on Linux, even with offscreen Qt.
+      GUI_PREFIX: ${{ startsWith(matrix.os, 'ubuntu') && 'xvfb-run -a' || '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Linux GUI/OpenGL dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 \
+            libegl1 \
+            libglx-mesa0 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libfontconfig1 \
+            libdbus-1-3 \
+            xvfb
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run Pytest Test Suite
+        run: |
+          $GUI_PREFIX pytest -v --cov=src --cov-report=xml --cov-report=term
+
+      - name: Run Legacy Debug Test Suite
+        run: |
+          $GUI_PREFIX python test_debug.py
+
+      - name: Smoke Test Application Startup
+        run: |
+          $GUI_PREFIX python -c "from PySide6.QtWidgets import QApplication; from src.ui.app_window import VectorMachineWindow; app = QApplication([]); w = VectorMachineWindow(); w.show(); app.processEvents(); w.close(); print('App smoke test: OK')"
+
+      - name: Upload Test Coverage Artifact
+        uses: actions/upload-artifact@v7
+        if: matrix.os == 'windows-2025' && matrix.python-version == '3.12'
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7

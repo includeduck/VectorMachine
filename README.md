@@ -2,6 +2,9 @@
   <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Nabla_symbol.svg" alt="VectorMachine Logo" width="120" height="120">
   <h1>VectorMachine</h1>
   <p><strong>A Desktop Application for Symbolic Vector Calculus and 3D Field Visualization</strong></p>
+  <p>
+    <a href="https://github.com/includeduck/VectorMachine/actions/workflows/ci.yml"><img src="https://github.com/includeduck/VectorMachine/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline"></a>
+  </p>
   <br/>
 </div>
 
@@ -15,10 +18,10 @@ Whether you're calculating divergence, evaluating curl, or trying to visualize h
 
 ## ✨ Features
 
-- **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl.
+- **Symbolic Calculus**: Leverages [SymPy](https://www.sympy.org/) to compute exact partial derivatives for Divergence and Curl with execution timeout protection (10s) and interactive computation cancellation.
 - **Step-by-Step Derivations**: Don't just get the final answer. VectorMachine shows the exact formulas and unsimplified steps used to arrive at the solution.
-- **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing buttery-smooth 2D quiver plots and 3D arrow glyphs that update dynamically.
-- **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or `.png` reports.
+- **Interactive Visualization**: Powered by [PyVista](https://docs.pyvista.org/) and VTK, providing smooth 2D quiver plots and 3D arrow glyphs evaluated asynchronously off the GUI thread with non-blocking UI responsiveness.
+- **Export Anywhere**: Save your work natively to `.json` sessions, or export beautifully formatted `.md` (Markdown), `.txt`, `.pdf`, or high-fidelity `.png` reports captured directly from the PyVista render buffer.
 - **Keyboard Navigation**: Highly accessible with built-in shortcuts to keep your hands on the keyboard.
 
 ---
@@ -26,7 +29,7 @@ Whether you're calculating divergence, evaluating curl, or trying to visualize h
 ## 🚀 Quickstart
 
 ### Prerequisites
-Make sure you have Python 3.9+ installed.
+Make sure you have Python 3.12+ installed (the pinned NumPy release requires it).
 
 ### Installation
 Clone the repository and install the requirements:
@@ -48,7 +51,26 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
+### Running Tests & Quality Assurance
+Install development and test dependencies:
+```bash
+pip install -r requirements-dev.txt
+```
+
+Run the modular test suite with coverage:
+```bash
+pytest --cov=src --cov-report=term
+```
+
+Run code sanity and linting checks:
+```bash
+ruff check .
+```
+
 ---
+
+### Theme
+- **View → Theme**: Switch between Light, Dark, and System themes (persisted across launches).
 
 ## ⌨️ Shortcuts & Controls
 

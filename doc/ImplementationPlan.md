@@ -35,14 +35,16 @@ This plan covers the implementation of the core application flows described in `
 - Controls
   - Compute Divergence
   - Compute Curl
+  - Cancel Computation (timeout and cooperative thread abort)
   - Clear
   - Load Example
   - Save Session
   - Open Session
-  - Export Results
+  - Export Results (Markdown, Text, PDF, Native PyVista PNG)
   - Theme toggles
   - Visualization options
 - Visualization Pane
+  - Asynchronous background grid evaluation (`VisualizationWorker`)
   - 2D quiver plot mode
   - 3D arrow glyph mode
   - rotate, zoom, pan controls
