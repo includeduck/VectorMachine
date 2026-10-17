@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from src.core.debug_log import debug_log
+from src.ui import vtk_probe
 from src.ui.themes import PALETTES
 from src.ui.visualization_worker import VisualizationWorker
 
@@ -204,6 +205,12 @@ class VisualizationPanel(QWidget):
         if self._vtk_initialization_failed:
             return False
 
+        # VTK tends to segfault rather than raise when OpenGL is unusable, which
+        # no try/except here could catch.  Ask the crash-isolated probe first.
+        usable, reason = vtk_probe.check()
+        if not usable:
+            return self._vtk_failed(reason)
+
         layout = self.layout()
         try:
             from pyvistaqt import QtInteractor
@@ -233,23 +240,33 @@ class VisualizationPanel(QWidget):
                 self.vtk_widget.deleteLater()
                 self.vtk_widget = None
             self.plotter = None
-            self._vtk_initialization_failed = True
-            if self._start_fallback():
-                self._plot_placeholder.setText(
-                    f"Hardware 3D is unavailable ({e}), so a basic Matplotlib "
-                    "view is shown instead. It redraws more slowly and can't "
-                    "be rotated with the mouse."
-                )
-            else:
-                self._plot_placeholder.setText(
-                    f"The 3D view could not start: {e}\n\n"
-                    "This usually means OpenGL is unavailable (missing graphics "
-                    "drivers, a remote desktop or a virtual machine). Results and "
-                    "exports still work."
-                )
-            self._plot_placeholder.show()
-            self._retry_button.show()
-            return False
+            return self._vtk_failed(str(e))
+
+    def _vtk_failed(self, reason):
+        """Show why VTK is unavailable and switch to the fallback if possible."""
+        self._vtk_initialization_failed = True
+        debug_log(
+            "visualization_panel.py:_vtk_failed",
+            "hardware 3D unavailable",
+            {"reason": reason},
+            "F",
+        )
+        if self._start_fallback():
+            self._plot_placeholder.setText(
+                f"Hardware 3D is unavailable ({reason}), so a basic Matplotlib "
+                "view is shown instead. It redraws more slowly and can't "
+                "be rotated with the mouse."
+            )
+        else:
+            self._plot_placeholder.setText(
+                f"The 3D view could not start: {reason}\n\n"
+                "This usually means OpenGL is unavailable (missing graphics "
+                "drivers, a remote desktop or a virtual machine). Results and "
+                "exports still work."
+            )
+        self._plot_placeholder.show()
+        self._retry_button.show()
+        return False
 
     def _start_fallback(self):
         if self._fallback is not None:
@@ -281,6 +298,7 @@ class VisualizationPanel(QWidget):
     def retry_vtk_initialization(self):
         """Clear a previous failure and try to start the 3D view again."""
         self._vtk_initialization_failed = False
+        vtk_probe.reset()
         self._plot_placeholder.setText("Starting the 3D view...")
         if self.ensure_vtk_initialized() and self.p_expr is not None:
             self.schedule_plot_update("retry")

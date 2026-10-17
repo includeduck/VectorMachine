@@ -61,3 +61,18 @@ def radial_field():
     q, _ = parse_expression("y")
     r, _ = parse_expression("z")
     return p, q, r
+
+
+@pytest.fixture(autouse=True)
+def vtk_probe_passes(request, monkeypatch):
+    """Report VTK as usable unless a test opts into the real check.
+
+    The suite runs on Qt's ``offscreen`` platform, which the real probe
+    rejects (VTK can't render there), so tests that drive the VTK path with a
+    fake ``pyvistaqt`` would otherwise never reach it.  Mark a test with
+    ``@pytest.mark.real_vtk_check`` to exercise the real probe.
+    """
+    if request.node.get_closest_marker("real_vtk_check") is None:
+        from src.ui import vtk_probe
+
+        monkeypatch.setattr(vtk_probe, "check", lambda *args, **kwargs: (True, None))

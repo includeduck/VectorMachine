@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from src.core.compute_process import get_compute_process
 from src.core.debug_log import debug_log
+from src.ui import vtk_probe
 from src.ui.compute_controller import ComputeController
 from src.ui.export_controller import FILE_FILTERS, ExportController
 from src.ui.input_panel import InputPanel
@@ -64,8 +65,10 @@ class VectorMachineWindow(QMainWindow):
         self.input_panel.inputChanged.connect(self.update_state)
         self.update_state()
 
-        # Spawn the SymPy child process once the window is up, so the first
-        # computation does not pay its start-up cost.
+        # The OpenGL check runs on its own thread, so start it now for the
+        # biggest head start; spawn the SymPy child once the window is up.
+        # Neither then delays the first plot or computation.
+        vtk_probe.start()
         QTimer.singleShot(0, get_compute_process().start)
 
     def closeEvent(self, event):
