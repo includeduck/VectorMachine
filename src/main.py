@@ -12,11 +12,17 @@ def main():
     from PySide6.QtWidgets import QApplication
 
     from src.core.debug_log import debug_log
+    from src.ui import branding
     from src.ui.app_window import VectorMachineWindow
 
     start_time = time.perf_counter()
-    
+
+    # Before any window exists, so the taskbar picks up the app's identity.
+    branding.set_windows_app_id()
     app = QApplication(sys.argv)
+    app.setApplicationName(branding.APP_NAME)
+    app.setApplicationVersion(branding.APP_VERSION)
+    app.setWindowIcon(branding.app_icon())
     app_created_ms = (time.perf_counter() - start_time) * 1000
 
     window_start = time.perf_counter()

@@ -13,13 +13,15 @@ from PySide6.QtWidgets import (
 
 from src.core.compute_process import get_compute_process
 from src.core.debug_log import debug_log
-from src.ui import vtk_probe
+from src.ui import branding, vtk_probe
+from src.ui.about_dialog import AboutDialog
 from src.ui.compute_controller import ComputeController
 from src.ui.export_controller import FILE_FILTERS, ExportController
 from src.ui.input_panel import InputPanel
 from src.ui.results_panel import ResultsPanel
 from src.ui.session_controller import SessionController, SessionLoadError
 from src.ui.theme_manager import ThemeManager
+from src.ui.themes import palette_for
 from src.ui.visualization_panel import VisualizationPanel
 
 EXAMPLES = (
@@ -40,7 +42,8 @@ class VectorMachineWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("VectorMachine")
+        self.setWindowTitle(branding.APP_NAME)
+        self.setWindowIcon(branding.app_icon())
         self.resize(1000, 700)
 
         self.last_div_steps = None
@@ -145,6 +148,10 @@ class VectorMachineWindow(QMainWindow):
         examples_menu = menu_bar.addMenu("Examples")
         for label, texts in EXAMPLES:
             self._add_action(examples_menu, label, lambda t=texts: self.load_example(*t))
+
+        help_menu = menu_bar.addMenu("Help")
+        about = self._add_action(help_menu, f"About {branding.APP_NAME}", self.on_about)
+        about.setMenuRole(QAction.AboutRole)  # macOS puts it in the app menu
 
     def _add_action(self, menu, label, slot, shortcut=None):
         action = QAction(label, self)
@@ -251,6 +258,9 @@ class VectorMachineWindow(QMainWindow):
             QMessageBox.critical(self, "Error Loading Session", str(error))
             return
         QMessageBox.information(self, "Session Loaded", message)
+
+    def on_about(self):
+        AboutDialog(self, accent=palette_for(self.theme.current)["accent"]).exec()
 
     def on_export(self, format_type):
         if self.exports.incomplete_field():
