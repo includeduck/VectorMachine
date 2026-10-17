@@ -108,12 +108,22 @@ class InputPanel(QWidget):
             "D",
         )
         
-        self.p_error.setText(p_err if p_err else "")
-        self.q_error.setText(q_err if q_err else "")
-        self.r_error.setText(r_err if r_err else "")
+        # An empty field is incomplete, not wrong: it keeps Compute disabled
+        # but shows no error (a fresh or cleared form would otherwise open
+        # with three red "cannot be empty" messages).
+        for label, text, err in (
+            (self.p_error, p_text, p_err),
+            (self.q_error, q_text, q_err),
+            (self.r_error, r_text, r_err),
+        ):
+            label.setText(err if err and text.strip() else "")
         
         self._is_valid = not (p_err or q_err or r_err) and bool(p_text and q_text and r_text)
-        if self._is_valid:
+        if not (p_text.strip() or q_text.strip() or r_text.strip()):
+            self._cached_p = self._cached_q = self._cached_r = None
+            self.preview_label.setText("Preview: F = <_, _, _>")
+            self.preview_label.setStyleSheet("font-weight: bold;")
+        elif self._is_valid:
             self._cached_p, self._cached_q, self._cached_r = p_expr, q_expr, r_expr
             self.preview_label.setText(
                 f"Preview: F = < {p_expr}, {q_expr}, {r_expr} >"

@@ -52,6 +52,20 @@ class TestInputPanel:
         panel.deleteLater()
         qapp.processEvents()
 
+    def test_empty_fields_show_no_errors(self, qapp):
+        panel = InputPanel()
+        errors = (panel.p_error, panel.q_error, panel.r_error)
+        assert [label.text() for label in errors] == ["", "", ""]
+        assert panel.preview_label.text() == "Preview: F = <_, _, _>"
+
+        # Partially filled: still invalid, but only real errors are shown.
+        panel.set_texts("x +", "", "  ")
+        assert not panel.is_valid()
+        assert panel.p_error.text() != ""
+        assert panel.q_error.text() == "" and panel.r_error.text() == ""
+        panel.deleteLater()
+        qapp.processEvents()
+
 
 class TestResultsPanel:
     """Test suite for computation results formatting and display."""

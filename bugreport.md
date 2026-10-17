@@ -29,7 +29,7 @@ The test suite passes, but it doesn't exercise any of the paths below.
 | 10 | Medium | Visualization | Fields using `!` (factorial) parse fine but can't be plotted (cryptic error) | **Fixed** |
 | 11 | Medium | Visualization | Arrow scale is absolute; 2D mode still plots the out-of-plane `w` component | **Fixed** |
 | 12 | Medium | Concurrency | Visualization workers pile up and share an unlocked `OrderedDict` cache | **Fixed** |
-| 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | Confirmed |
+| 13 | Low | Input UI | At startup all three fields show the red error "Expression cannot be empty." | **Fixed** |
 | 14 | Low | Theming | Hard-coded colours ignore the dark theme | Code review |
 | 15 | Low | Parser | Scientific notation (`1e3`) is rejected as "Unsupported name: e3" | Confirmed |
 | 16 | Low | Core | `_lazy_init()` is not thread-safe (latent) | Code review |
@@ -205,11 +205,13 @@ The session format also has no `version` field.
 
 **Resolution:** `_get_lambdified` holds a lock, including while compiling, so concurrent requests for the same field compile it once. The panel runs at most one visualization worker. A request made while one is evaluating drops that worker's result and replots with the latest settings once it exits.
 
-## 13. At startup all three fields show the red error "Expression cannot be empty." — Low
+## 13. At startup all three fields show the red error "Expression cannot be empty." — Low — **Fixed**
 
 **Where:** [input_panel.py:419](src/ui/input_panel.py:419), [input_panel.py:497-499](src/ui/input_panel.py:497)
 
 `do_validate_inputs()` runs in `__init__`, so a fresh window opens with three red error labels. The same happens after **Clear**. Empty fields should show no error, only a disabled Compute button.
+
+**Resolution:** empty or blank fields no longer show an error; they only keep Compute disabled. An all-empty form shows the neutral preview `F = <_, _, _>`.
 
 ## 14. Hard-coded colours ignore the dark theme — Low
 
