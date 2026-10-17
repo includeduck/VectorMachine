@@ -92,7 +92,7 @@ ruff check .
 - **Middle Click & Drag**: Pan camera
 
 ### Without OpenGL
-Remote desktops, virtual machines and missing graphics drivers often can't provide the OpenGL context that PyVista/VTK needs. When the 3D view fails to start, the Visualization tab says why and switches to a basic Matplotlib view (a 2D quiver, or a 3D quiver in 3D mode) that uses the same settings, theme and PNG export. It redraws more slowly and can't be rotated with the mouse. **Retry 3D view** tries the hardware renderer again, for example after a driver update.
+Remote desktops, virtual machines and missing graphics drivers often can't provide the OpenGL context that PyVista/VTK needs. VTK often *crashes* rather than reporting an error in that situation, so before creating the 3D view the app checks it safely: Qt's `offscreen`/`minimal` platforms are ruled out at once, and otherwise a throwaway child process renders one small frame. That check starts in the background at launch, so it is normally finished before you open the tab. When the check fails or the 3D view can't start, the Visualization tab says why and switches to a basic Matplotlib view (a 2D quiver, or a 3D quiver in 3D mode) that uses the same settings, theme and PNG export. It redraws more slowly and can't be rotated with the mouse. **Retry 3D view** runs the check again and retries the hardware renderer, for example after a driver update.
 
 ---
 
@@ -115,7 +115,7 @@ VectorMachine is designed around three core layers:
    - `pdf_export.py` (Qt PDF rendering) and `settings.py` (persisted preferences via `QSettings`).
    - Background workers for computation and field evaluation.
    - `themes.py`, which holds the stylesheets and the WCAG-AA colour palettes.
-   - `mpl_fallback.py`, the Matplotlib renderer used when OpenGL is unavailable.
+   - `mpl_fallback.py`, the Matplotlib renderer used when OpenGL is unavailable, and `vtk_probe.py`, the crash-isolated check that decides whether VTK may start.
 3. **Documentation (`doc/`)**: internal specs, milestone plans and progress tracking. `bugreport.md` records the bug audit and how each item was resolved, and `Weakness.md` is the architectural critique with its current status.
 
 ---

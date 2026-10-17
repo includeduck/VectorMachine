@@ -80,3 +80,7 @@ A full audit (`bugreport.md`) found 18 issues, and all of them are fixed.
 - **`VectorMachineWindow` split up** (`Weakness.md` §2.1): compute orchestration moved to `ComputeController`, sessions to `SessionController`, export dispatch to `ExportController` and theming to `ThemeManager`. The window shrank from 446 to 264 lines and now builds the layout and menus, owns the dialogs and wires the parts.
 - **Headless core** (§2.2): Qt PDF rendering moved to `src/ui/pdf_export.py` and the `QSettings` wrapper to `src/ui/settings.py`, so `src/core` imports no Qt; a test enforces this.
 - 25 new unit tests cover the extracted classes, including deterministic tests of the compute controller with a fake worker.
+
+## Crash-Safe 3D Start-up
+
+- VTK could *segfault* instead of raising when OpenGL was unusable (reproduced under Qt's `offscreen` platform: exit code 139), so the Matplotlib fallback never engaged. A crash-isolated check (`src/ui/vtk_probe.py`) now decides first: headless Qt platforms are ruled out at once, and otherwise a child process renders one frame. It starts in the background at launch, is cached, and re-runs on **Retry 3D view**.

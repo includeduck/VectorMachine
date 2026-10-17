@@ -250,6 +250,14 @@ The function publishes the global `sp` (line 38) before it assigns `x`, `y`, `z`
 
 **Fallback renderer (follow-up PR):** when VTK can't start, the tab now switches automatically to a Matplotlib view (`src/ui/mpl_fallback.py`): a 2D quiver in 2D mode, or an `mplot3d` quiver in 3D mode. It uses the same worker output, arrow scaling, theme colours and PNG export. A successful retry swaps the hardware renderer back in. If Matplotlib can't load either, the error message stays as before.
 
+**Crash-safe start-up (follow-up PR):** the fallback only engaged when VTK *raised* an error. While testing, it turned out that under Qt's `offscreen` platform (and plausibly on real machines without OpenGL) VTK fails to get a pixel format and then *segfaults* the whole app (exit code 139), so the fallback never ran. `src/ui/vtk_probe.py` now decides first, without risking the app:
+
+- Qt platforms without native windows are rejected immediately.
+- Otherwise a `spawn` child process renders one 16×16 frame. A crash, a "no OpenGL" answer or a hang (15 s) is reported as a reason, and only the child dies.
+- The check starts in a background thread when the window is created and is cached for the process. **Retry 3D view** re-runs it.
+
+On a normal display this adds about 0.05 s to opening the tab, and up to about 0.6 s if the tab is opened within the first second. A regression test opens the tab under `offscreen` with the real `pyvistaqt` in a subprocess; on the old code it crashes.
+
 ## 18. Tracked build debris, a stray spike file, and docs that no longer match the code — Low — **Fixed**
 
 - Twelve tracked `desktop.ini` files. Their deletion is the uncommitted work on `Fix` (see below).
